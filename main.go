@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -184,7 +184,9 @@ func main() {
 
 				pt("%s\n", item.Title)
 
-				tx.MustExec(`INSERT INTO `+prefix+`_goods (
+			exec:
+				_, err := tx.Exec(`INSERT INTO `+prefix+`_goods (
+					if 
 					good_id,
 					price,
 					shop_id,
@@ -217,6 +219,15 @@ func main() {
 					item.Sort_score,
 					item.Title,
 				)
+				if err != nil {
+					if err, ok := err.(*mysql.MySQLError); ok {
+						if err.Number == 1216 {
+							goto exec
+						}
+					} else {
+						ce(err, "exec error")
+					}
+				}
 
 			}
 			ce(tx.Commit(), "commit")
@@ -248,7 +259,7 @@ func main() {
 }
 
 func decodeFromUrl(path string, target interface{}) (err error) {
-	retry := 5
+	retry := 20
 retry:
 	pageResp, err := http.Get(path)
 	if err != nil {
