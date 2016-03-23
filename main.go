@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -35,6 +36,23 @@ func main() {
 
 	pageUrl := fmt.Sprintf("http://www.vvic.com/api/shop/navigation?bid=&currentPage=%d&pageSize=%d",
 		page, pageSize)
+	type ShopInfo struct {
+		Qq            string
+		Authenticated int
+		Ww_nickname   string // 旺旺号
+		Wechat        string
+		Contacts_name string
+		Telephone     []string
+		MarketName    string // 市场
+		Name          string // 档口名
+		Id            int
+		Position      string // 档口
+		Floor         int    // 市场楼层
+		Bid           int    // ?
+		Shop_category string // 主营
+		Cid           int    // ?
+		Status        int    // ?
+	}
 	var data struct {
 		Code int
 		Data struct {
@@ -42,23 +60,7 @@ func main() {
 			PageSize    int
 			PageCount   int // 无用
 			RecordCount int // 不等于len(RecordList)
-			RecordList  []struct {
-				Qq            string
-				Authenticated int
-				Ww_nickname   string // 旺旺号
-				Wechat        string
-				Contacts_name string
-				Telephone     []string
-				MarketName    string // 市场
-				Name          string // 档口名
-				Id            int
-				Position      string // 档口
-				Floor         int    // 市场楼层
-				Bid           int    // ?
-				Shop_category string // 主营
-				Cid           int    // ?
-				Status        int    // ?
-			}
+			RecordList  []ShopInfo
 		}
 	}
 	ce(decodeFromUrl(pageUrl, &data), "decode")
@@ -78,17 +80,10 @@ func main() {
 		"富丽":  true, // 648
 	}
 
-	markets := map[string]int{}
-	marketNames := Strs([]string{})
-	type ShopInfo struct {
-		ItemCount int
-	}
-	shops := make(map[int]*ShopInfo)
-
-	for i, shop := range data.Data.RecordList {
+	collectShop := func(i int, shop ShopInfo) {
 		// 其他市场的不管
 		if _, ok := selectedMarkets[shop.MarketName]; !ok {
-			continue
+			return
 		}
 
 		pt("%50s %d\n", "shop", i)
@@ -111,7 +106,7 @@ func main() {
 		if len(lastUpdates) > 0 && lastUpdates[0] == curUpdate {
 			pt("last update at: %v, current update at %v, skip %d\n",
 				lastUpdates[0], curUpdate, shop.Id)
-			continue
+			return
 		}
 
 		/*
@@ -133,11 +128,6 @@ func main() {
 			ON DUPLICATE KEY UPDATE shop_id=shop_id`,
 			shop.Id,
 		)
-
-		markets[shop.MarketName]++
-		if markets[shop.MarketName] == 1 {
-			marketNames = append(marketNames, shop.MarketName)
-		}
 
 		maxPage := 9999
 		page := 1
@@ -185,10 +175,6 @@ func main() {
 			if page == 1 { // 第一页
 				maxPage = data.Data.PageCount
 			}
-			if _, ok := shops[shop.Id]; !ok {
-				shops[shop.Id] = new(ShopInfo)
-			}
-			shops[shop.Id].ItemCount = data.Data.RecordCount
 			tx := db.MustBegin()
 			for _, item := range data.Data.RecordList {
 
@@ -244,14 +230,20 @@ func main() {
 			shop.Id)
 	}
 
-	/*
-		marketNames.Sort(func(a, b string) bool {
-			return markets[a] > markets[b]
-		})
-		for _, name := range marketNames {
-			pt("%-20s%d\n", name, markets[name])
-		}
-	*/
+	sem := make(chan bool, 8)
+	wg := new(sync.WaitGroup)
+	wg.Add(len(data.Data.RecordList))
+	for i, shop := range data.Data.RecordList {
+		sem <- true
+		go func() {
+			defer func() {
+				wg.Done()
+				<-sem
+			}()
+			collectShop(i, shop)
+		}()
+	}
+	wg.Wait()
 
 }
 
