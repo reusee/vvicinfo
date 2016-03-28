@@ -3,6 +3,7 @@ package main
 func initSchemas() {
 	db.MustExec(`CREATE TABLE IF NOT EXISTS ` + prefix + `_shops (
 		shop_id INT PRIMARY KEY,
+		name CHAR(128),
 		update_at DATETIME
 	)`)
 	db.MustExec(`CREATE TABLE IF NOT EXISTS ` + prefix + `_goods (
