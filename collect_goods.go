@@ -11,16 +11,13 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func collectDetailPages() {
+func collectGoods() {
 	var ids []int64
-	err := db.Select(&ids, `SELECT good_id FROM images a
-		LEFT JOIN goods b
-		GROUP BY good_id
-		HAVING COUNT(*) = 1
-		WHERE status = 1
-		ORDER BY good_id DESC
+	err := db.Select(&ids, `SELECT good_id FROM goods a
+		WHERE NOT EXISTS (SELECT good_id FROM images b WHERE a.good_id = b.good_id)
 		`)
 	ce(err, "select ids")
+	pt("%d ids\n", len(ids))
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(ids))
@@ -53,8 +50,9 @@ func collectDetailPage(id int64) (n int, err error) {
 	var data struct {
 		Code int
 		Data struct {
-			Imgs string // 图片
-			Desc string // 描述html
+			Imgs   string // 图片
+			Desc   string // 描述html
+			Status int    // 上下架状态
 		}
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
@@ -80,6 +78,10 @@ func collectDetailPage(id int64) (n int, err error) {
 		ce(saveGoodImage(tx, id, imgSrc), "save image url")
 		n++
 	})
+	_, err = tx.Exec(`UPDATE goods SET status = ? WHERE good_id = ?`,
+		data.Data.Status,
+		id)
+	ce(err, "update status")
 	ce(tx.Commit(), "commit")
 	return
 }

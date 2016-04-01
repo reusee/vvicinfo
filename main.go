@@ -1,36 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 )
-
-var (
-	start = time.Now()
-)
-
-var outputStrs = make(chan string)
-
-func init() {
-	go func() {
-		for s := range outputStrs {
-			print(s)
-		}
-	}()
-}
-
-func pt(format string, args ...interface{}) {
-	outputStrs <- fmt.Sprintf("%-20v", time.Now().Sub(start)) +
-		fmt.Sprintf(format, args...)
-}
 
 var db *sqlx.DB
 
@@ -66,12 +43,12 @@ type Image struct {
 }
 
 func main() {
-	collectPages()
-	collectDetailPages()
+	collectShops()
+	collectGoods()
 	downloadImages()
 }
 
-func collectPages() {
+func collectShops() {
 	// collect pages
 	page := 1
 	infos := []ShopInfo{}
@@ -115,29 +92,6 @@ func collectPages() {
 	wg.Wait()
 }
 
-func getBody(url string) (body []byte, err error) {
-	retry := 5
-get:
-	resp, err := http.Get(url)
-	if err != nil {
-		if retry > 0 {
-			retry--
-			goto get
-		}
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		if retry > 0 {
-			retry--
-			goto get
-		}
-		return nil, err
-	}
-	return body, nil
-}
-
 var selectedMarkets = map[string]bool{
 	"国大":  true, // 1672
 	"女人街": true, // 1463
@@ -155,9 +109,9 @@ var selectedMarkets = map[string]bool{
 
 func collectShop(i int, shop ShopInfo) {
 	// 其他市场的不管
-	if _, ok := selectedMarkets[shop.MarketName]; !ok {
-		return
-	}
+	//if _, ok := selectedMarkets[shop.MarketName]; !ok {
+	//	return
+	//}
 
 	pt("%50s %d\n", "shop", i)
 
@@ -182,17 +136,6 @@ func collectShop(i int, shop ShopInfo) {
 		return
 	}
 
-	/*
-		pt("%d\n", shop.Id)
-		pt("%s\n", shop.Qq)
-		pt("%s\n", shop.Ww_nickname)
-		pt("%v\n", shop.Telephone)
-		pt("%s\n", shop.Name)
-		pt("%s %d楼 %s\n", shop.MarketName, shop.Floor, shop.Position)
-		pt("%s\n", shop.Shop_category)
-		pt("===\n\n")
-	*/
-
 	db.MustExec(`INSERT INTO shops (
 				shop_id,
 				name
@@ -205,6 +148,13 @@ func collectShop(i int, shop ShopInfo) {
 		shop.Name,
 	)
 
+	// set existing goods' status to 0
+	db.MustExec(`UPDATE goods SET
+		status = 0
+		WHERE shop_id = ?`,
+		shop.Id)
+
+	// collect in sale goods
 	maxPage := 9999
 	page := 1
 	for {
@@ -246,8 +196,9 @@ func collectShop(i int, shop ShopInfo) {
 			}
 		}
 
-		ce(decodeFromUrl(fmt.Sprintf("http://www.vvic.com/rest/shop/search-item?shop_id=%d&q=&currentPage=%d",
-			shop.Id, page), &data), "decode")
+		url := fmt.Sprintf("http://www.vvic.com/rest/shop/search-item?shop_id=%d&q=&currentPage=%d",
+			shop.Id, page)
+		ce(decodeFromUrl(url, &data), "decode %s", url)
 		if page == 1 { // 第一页
 			maxPage = data.Data.PageCount
 		}
@@ -256,23 +207,6 @@ func collectShop(i int, shop ShopInfo) {
 
 			if item.Is_tx != 1 { // 不支持退现的不理
 				continue
-			}
-
-			pt("%s\n", item.Title)
-			imageUrl := item.Index_img_url
-			if !strings.HasPrefix(imageUrl, "http") && len(imageUrl) > 0 {
-				imageUrl = "http:" + imageUrl
-			}
-
-			if imageUrl != "" {
-				_, err := tx.Exec(`INSERT INTO images (
-					good_id,
-					url
-				) VALUES (
-					?,
-					?
-				) ON DUPLICATE KEY UPDATE good_id=good_id`, item.Id, imageUrl)
-				ce(err, "insert image")
 			}
 
 		exec:
@@ -284,7 +218,8 @@ func collectShop(i int, shop ShopInfo) {
 					category,
 					score,
 					sort_score,
-					title
+					title,
+					status
 				) VALUES (
 					?,
 					?,
@@ -293,12 +228,14 @@ func collectShop(i int, shop ShopInfo) {
 					?,
 					?,
 					?,
-					?
+					?,
+					1
 				) ON DUPLICATE KEY UPDATE 
 					price=price,
 					score=score,
 					sort_score=sort_score,
-					title=title
+					title=title,
+					status=1
 				`,
 				item.Id,
 				item.Discount_price,
@@ -323,32 +260,11 @@ func collectShop(i int, shop ShopInfo) {
 		page++
 	}
 
+	//TODO collect off shelve goods
+
 	// 更新update_at
 	db.MustExec(`UPDATE shops SET update_at = ?
 			WHERE shop_id = ?`,
 		curUpdate,
 		shop.Id)
-}
-
-func decodeFromUrl(path string, target interface{}) (err error) {
-	retry := 20
-retry:
-	pageResp, err := http.Get(path)
-	if err != nil {
-		if retry < 0 {
-			return err
-		}
-		retry--
-		goto retry
-	}
-	defer pageResp.Body.Close()
-	err = json.NewDecoder(pageResp.Body).Decode(target)
-	if err != nil {
-		if retry < 0 {
-			return err
-		}
-		retry--
-		goto retry
-	}
-	return nil
 }

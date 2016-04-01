@@ -10,14 +10,14 @@ func initSchemas() {
 	`)
 	db.MustExec(`CREATE TABLE IF NOT EXISTS goods (
 		good_id INT UNSIGNED PRIMARY KEY,
-		price DECIMAL(10, 2),
-		shop_id INT,
+		price DECIMAL(10, 2) NOT NULL,
+		shop_id INT NOT NULL,
 		added_at CHAR(10),
-		category INT,
+		category INT NOT NULL,
 		score DOUBLE,
 		sort_score DOUBLE,
 		title CHAR(255),
-		status INT(1),
+		status INT(1) NOT NULL,
 		INDEX shop_id (shop_id),
 		INDEX added_at (added_at),
 		INDEX category (category),
@@ -27,8 +27,11 @@ func initSchemas() {
 	`)
 	db.MustExec(`CREATE TABLE IF NOT EXISTS images (
 		good_id INT UNSIGNED,
-		url CHAR(255),
-		UNIQUE INDEX image_url (good_id, url)
+		url CHAR(255) NOT NULL,
+		sha512 VARBINARY(64),
+		UNIQUE INDEX good_image (good_id, url),
+		INDEX sha512 (sha512),
+		INDEX good_id (good_id)
 	)
 		ROW_FORMAT=COMPRESSED
 	`)
