@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,8 +14,7 @@ import (
 )
 
 var (
-	start  = time.Now()
-	prefix = time.Now().Format("2006_01_02")
+	start = time.Now()
 )
 
 var outputStrs = make(chan string)
@@ -58,7 +59,20 @@ type ShopInfo struct {
 	Status        int    // ?
 }
 
+type Image struct {
+	GoodId int `db:"good_id"`
+	Url    string
+	Sha512 []byte
+}
+
 func main() {
+	collectPages()
+	collectDetailPages()
+	downloadImages()
+}
+
+func collectPages() {
+	// collect pages
 	page := 1
 	infos := []ShopInfo{}
 	for {
@@ -99,7 +113,29 @@ func main() {
 		}()
 	}
 	wg.Wait()
+}
 
+func getBody(url string) (body []byte, err error) {
+	retry := 5
+get:
+	resp, err := http.Get(url)
+	if err != nil {
+		if retry > 0 {
+			retry--
+			goto get
+		}
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		if retry > 0 {
+			retry--
+			goto get
+		}
+		return nil, err
+	}
+	return body, nil
 }
 
 var selectedMarkets = map[string]bool{
@@ -137,7 +173,7 @@ func collectShop(i int, shop ShopInfo) {
 	curUpdate, err := time.Parse("2006-01-02 15:04:05", data.Data.Update_time)
 	ce(err, "parse current update time")
 	var lastUpdates []time.Time
-	err = db.Select(&lastUpdates, `SELECT update_at FROM `+prefix+`_shops
+	err = db.Select(&lastUpdates, `SELECT update_at FROM shops
 			WHERE shop_id = ? LIMIT 1`, shop.Id)
 	ce(err, "select last update time")
 	if len(lastUpdates) > 0 && lastUpdates[0] == curUpdate {
@@ -157,14 +193,14 @@ func collectShop(i int, shop ShopInfo) {
 		pt("===\n\n")
 	*/
 
-	db.MustExec(`INSERT INTO `+prefix+`_shops (
+	db.MustExec(`INSERT INTO shops (
 				shop_id,
 				name
 			) VALUES (
 				?,
 				?
 			)
-			ON DUPLICATE KEY UPDATE shop_id=shop_id`,
+			ON DUPLICATE KEY UPDATE name=name`,
 		shop.Id,
 		shop.Name,
 	)
@@ -223,9 +259,24 @@ func collectShop(i int, shop ShopInfo) {
 			}
 
 			pt("%s\n", item.Title)
+			imageUrl := item.Index_img_url
+			if !strings.HasPrefix(imageUrl, "http") && len(imageUrl) > 0 {
+				imageUrl = "http:" + imageUrl
+			}
+
+			if imageUrl != "" {
+				_, err := tx.Exec(`INSERT INTO images (
+					good_id,
+					url
+				) VALUES (
+					?,
+					?
+				) ON DUPLICATE KEY UPDATE good_id=good_id`, item.Id, imageUrl)
+				ce(err, "insert image")
+			}
 
 		exec:
-			_, err := tx.Exec(`INSERT INTO `+prefix+`_goods (
+			_, err = tx.Exec(`INSERT INTO goods (
 					good_id,
 					price,
 					shop_id,
@@ -273,7 +324,7 @@ func collectShop(i int, shop ShopInfo) {
 	}
 
 	// 更新update_at
-	db.MustExec(`UPDATE `+prefix+`_shops SET update_at = ?
+	db.MustExec(`UPDATE shops SET update_at = ?
 			WHERE shop_id = ?`,
 		curUpdate,
 		shop.Id)
