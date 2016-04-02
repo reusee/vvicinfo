@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -45,7 +46,7 @@ type Image struct {
 func main() {
 	collectShops()
 	collectGoods()
-	downloadImages()
+	hashImages()
 }
 
 func collectShops() {
@@ -74,6 +75,18 @@ func collectShops() {
 		pt("%d %d\n", page, len(infos))
 	}
 
+	skip := make(map[int]bool)
+	var ids []int
+	ts := time.Now().Add(-time.Hour * 8).Unix()
+	err := db.Select(&ids, `SELECT shop_id
+		FROM shops 
+		WHERE last_update_time > ?`,
+		ts)
+	ce(err, "select skip shop ids")
+	for _, id := range ids {
+		skip[id] = true
+	}
+
 	sem := make(chan bool, 8)
 	wg := new(sync.WaitGroup)
 	wg.Add(len(infos))
@@ -86,7 +99,7 @@ func collectShops() {
 				wg.Done()
 				<-sem
 			}()
-			collectShop(i, shop)
+			collectShop(skip, i, shop)
 		}()
 	}
 	wg.Wait()
@@ -107,7 +120,7 @@ var selectedMarkets = map[string]bool{
 	"富丽":  true, // 648
 }
 
-func collectShop(i int, shop ShopInfo) {
+func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 	// 其他市场的不管
 	//if _, ok := selectedMarkets[shop.MarketName]; !ok {
 	//	return
@@ -115,24 +128,8 @@ func collectShop(i int, shop ShopInfo) {
 
 	pt("%50s %d\n", "shop", i)
 
-	// 判断是否更新了
-	var data struct {
-		Code int
-		Data struct {
-			Update_time string
-		}
-	}
-	ce(decodeFromUrl(fmt.Sprintf("http://www.vvic.com/api/shop/%d", shop.Id), &data),
-		"get shop info")
-	curUpdate, err := time.Parse("2006-01-02 15:04:05", data.Data.Update_time)
-	ce(err, "parse current update time")
-	var lastUpdates []time.Time
-	err = db.Select(&lastUpdates, `SELECT update_at FROM shops
-			WHERE shop_id = ? LIMIT 1`, shop.Id)
-	ce(err, "select last update time")
-	if len(lastUpdates) > 0 && lastUpdates[0] == curUpdate {
-		pt("last update at: %v, current update at %v, skip %d\n",
-			lastUpdates[0], curUpdate, shop.Id)
+	// 近期采集过的不管
+	if _, ok := skip[shop.Id]; ok {
 		return
 	}
 
@@ -165,52 +162,79 @@ func collectShop(i int, shop ShopInfo) {
 		var data struct {
 			Code int
 			Data struct {
-				CurrentPage int
-				PageCount   int // 总页数
-				PageSize    int
-				RecordCount int // 总商品数
-				RecordList  []struct {
-					Discount_price string  // 拿货价
-					Tid            string  // ??
-					Is_shop_auth   int     // ?
-					Price          float64 // 原价
-					Id             string
-					Art_no         string // 货号
-					Sub_name       string // 市场名
-					Shop_name      string // 档口名
-					Shop_id        int
-					Up_time        int64   // 上架时间，millisecond
-					Position       string  // 档口位置
-					Upload_num     int     // ?
-					Is_tx          int     // 是否退现
-					Is_df          int     // 是否代发
-					Is_sp          int     // 是否实拍
-					Index_img_url  string  // 主图地址
-					Title          string  // 标题
-					Bname          string  // ?
-					Bid            string  // ?
-					Tcid           string  // 分类id
-					Score          float64 // 分数 ？
-					Sort_score     float64 // 排序分数 ？
+				//CurrentPage int
+				PageCount int // 总页数
+				//PageSize    int
+				//RecordCount int // 总商品数
+				RecordList []struct {
+					Discount_price interface{} // 拿货价
+					//Tid            string  // ??
+					//Is_shop_auth   int     // ?
+					//Price          float64 // 原价
+					Id string
+					//Art_no         string // 货号
+					//Sub_name       string // 市场名
+					//Shop_name      string // 档口名
+					//Shop_id        int
+					Up_time int64 // 上架时间，millisecond
+					//Position       string  // 档口位置
+					//Upload_num     int     // ?
+					Is_tx int // 是否退现
+					//Is_df          int     // 是否代发
+					//Is_sp          int     // 是否实拍
+					//Index_img_url  string  // 主图地址
+					Title string // 标题
+					//Bname          string  // ?
+					//Bid            string  // ?
+					Tcid       string  // 分类id
+					Score      float64 // 分数 ？
+					Sort_score float64 // 排序分数 ？
 				}
 			}
 		}
 
 		url := fmt.Sprintf("http://www.vvic.com/rest/shop/search-item?shop_id=%d&q=&currentPage=%d",
 			shop.Id, page)
-		ce(decodeFromUrl(url, &data), "decode %s", url)
+		retry := 5
+	decode:
+		err := decodeFromUrl(url, &data)
+		if err != nil {
+			if retry > 0 {
+				retry--
+				goto decode
+			}
+			ce(err, "decode data %s", url)
+		}
 		if page == 1 { // 第一页
 			maxPage = data.Data.PageCount
 		}
-		tx := db.MustBegin()
-		for _, item := range data.Data.RecordList {
+		ce(withTx(db, func(tx *sqlx.Tx) (err error) {
+			defer ct(&err)
+			for _, item := range data.Data.RecordList {
 
-			if item.Is_tx != 1 { // 不支持退现的不理
-				continue
-			}
+				if item.Is_tx != 1 { // 不支持退现的不理
+					continue
+				}
 
-		exec:
-			_, err = tx.Exec(`INSERT INTO goods (
+				if item.Discount_price == nil {
+					continue
+				}
+				var price float64
+				switch p := item.Discount_price.(type) {
+				case string:
+					price, err = strconv.ParseFloat(p, 64)
+					ce(err, "parse price")
+				case float64:
+					price = p
+				default:
+					panic(fmt.Sprintf("invalid price %T", item.Discount_price))
+				}
+				if price == 0 { // 没有批发价的不理
+					continue
+				}
+
+			exec:
+				_, err = tx.Exec(`INSERT INTO goods (
 					good_id,
 					price,
 					shop_id,
@@ -237,34 +261,33 @@ func collectShop(i int, shop ShopInfo) {
 					title=title,
 					status=1
 				`,
-				item.Id,
-				item.Discount_price,
-				shop.Id,
-				time.Unix(item.Up_time/1000, 0).Format("2006-01-02"),
-				item.Tcid,
-				item.Score,
-				item.Sort_score,
-				item.Title,
-			)
-			if err != nil {
-				if err, ok := err.(*mysql.MySQLError); ok {
-					if err.Number == 1216 {
-						goto exec
+					item.Id,
+					price,
+					shop.Id,
+					time.Unix(item.Up_time/1000, 0).Format("2006-01-02"),
+					item.Tcid,
+					item.Score,
+					item.Sort_score,
+					item.Title,
+				)
+				if err != nil {
+					if err, ok := err.(*mysql.MySQLError); ok {
+						if err.Number == 1216 {
+							goto exec
+						}
 					}
+					ce(err, "exec error")
 				}
-				ce(err, "exec error")
-			}
 
-		}
-		ce(tx.Commit(), "commit")
+			}
+			return
+		}), "tx")
 		page++
 	}
 
-	//TODO collect off shelve goods
-
-	// 更新update_at
-	db.MustExec(`UPDATE shops SET update_at = ?
-			WHERE shop_id = ?`,
-		curUpdate,
+	// 更新
+	db.MustExec(`UPDATE shops SET last_update_time = ?
+		WHERE shop_id = ?`,
+		time.Now().Unix(),
 		shop.Id)
 }

@@ -13,9 +13,9 @@ import (
 
 func collectGoods() {
 	var ids []int64
-	err := db.Select(&ids, `SELECT good_id FROM goods a
-		WHERE NOT EXISTS (SELECT good_id FROM images b WHERE a.good_id = b.good_id)
-		`)
+	err := db.Select(&ids, `SELECT good_id FROM goods
+		WHERE good_id NOT IN (
+			SELECT DISTINCT good_id FROM images)`)
 	ce(err, "select ids")
 	pt("%d ids\n", len(ids))
 
@@ -57,44 +57,54 @@ func collectDetailPage(id int64) (n int, err error) {
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
 	ce(err, "decode")
-	tx := db.MustBegin()
-	for _, imgPath := range strings.Split(data.Data.Imgs, ",") {
-		if imgPath == "" {
-			continue
+	ce(withTx(db, func(tx *sqlx.Tx) (err error) {
+		defer ct(&err)
+		for _, imgPath := range strings.Split(data.Data.Imgs, ",") {
+			if imgPath == "" {
+				continue
+			}
+			if !strings.HasPrefix(imgPath, "http:") {
+				imgPath = "http:" + imgPath
+			}
+			ce(saveGoodImage(tx, id, imgPath), "save image url")
+			n++
 		}
-		if !strings.HasPrefix(imgPath, "http:") {
-			imgPath = "http:" + imgPath
-		}
-		ce(saveGoodImage(tx, id, imgPath), "save image url")
-		n++
-	}
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(data.Data.Desc))
-	ce(err, "goquery doc")
-	doc.Find("img").Each(func(i int, se *goquery.Selection) {
-		imgSrc, _ := se.Attr("src")
-		if !strings.HasPrefix(imgSrc, "http") {
-			return
-		}
-		ce(saveGoodImage(tx, id, imgSrc), "save image url")
-		n++
-	})
-	_, err = tx.Exec(`UPDATE goods SET status = ? WHERE good_id = ?`,
-		data.Data.Status,
-		id)
-	ce(err, "update status")
-	ce(tx.Commit(), "commit")
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(data.Data.Desc))
+		ce(err, "goquery doc")
+		doc.Find("img").Each(func(i int, se *goquery.Selection) {
+			imgSrc, _ := se.Attr("src")
+			if !strings.HasPrefix(imgSrc, "http") {
+				return
+			}
+			ce(saveGoodImage(tx, id, imgSrc), "save image url")
+			n++
+		})
+		_, err = tx.Exec(`UPDATE goods SET status = ? WHERE good_id = ?`,
+			data.Data.Status,
+			id)
+		ce(err, "update status")
+		return
+	}), "tx")
 	return
 }
 
 func saveGoodImage(tx *sqlx.Tx, good_id int64, url string) (err error) {
+	defer ct(&err)
 	if url != "" {
+		res, err := tx.Exec(`INSERT INTO urls (url) VALUES (?)
+			ON DUPLICATE KEY UPDATE url_id = LAST_INSERT_ID(url_id)`,
+			url)
+		ce(err, "insert url")
+		url_id, err := res.LastInsertId()
+		ce(err, "get last insert id")
 		_, err = tx.Exec(`INSERT INTO images (
 					good_id,
-					url
+					url_id
 				) VALUES (
 					?,
 					?
-				) ON DUPLICATE KEY UPDATE good_id=good_id`, good_id, url)
+				) ON DUPLICATE KEY UPDATE good_id=good_id`, good_id, url_id)
+		ce(err, "insert image")
 	}
 	return
 }

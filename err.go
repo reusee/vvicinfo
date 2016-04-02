@@ -45,3 +45,11 @@ func ct(err *error) {
 		}
 	}
 }
+
+func (e *Err) Origin() error {
+	var ret error = e
+	for err, ok := ret.(*Err); ok && err.Prev != nil; err, ok = ret.(*Err) {
+		ret = err.Prev
+	}
+	return ret
+}

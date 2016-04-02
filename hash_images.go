@@ -10,25 +10,22 @@ import (
 	"time"
 )
 
-func downloadImages() {
-	// download images
+func hashImages() {
 	var nBytes int64
 	go func() {
 		for range time.NewTicker(time.Second).C {
 			pt("%d\n", atomic.SwapInt64(&nBytes, 0))
 		}
 	}()
-	fileExists := make(map[string]bool)
-	fileExistsLock := new(sync.Mutex)
+	//fileExists := make(map[string]bool)
+	//fileExistsLock := new(sync.Mutex)
 	for {
 		var images []Image
-		pt("foo\n")
 		err := db.Select(&images, `SELECT * FROM images 
 			WHERE sha512 IS NULL 
-			AND url <> ""
 			LIMIT 4096`)
 		ce(err, "select images")
-		pt("collecting %d images\n", len(images))
+		pt("hashing %d images\n", len(images))
 		wg := new(sync.WaitGroup)
 		wg.Add(len(images))
 		sem := make(chan bool, 4)
@@ -40,7 +37,7 @@ func downloadImages() {
 					<-sem
 					wg.Done()
 				}()
-				ce(downloadImage(image, &nBytes, fileExists, fileExistsLock), "download image")
+				ce(hashImage(image, &nBytes), "hash image")
 			}()
 		}
 		wg.Wait()
@@ -48,7 +45,25 @@ func downloadImages() {
 			break
 		}
 	}
+}
 
+func hashImage(image Image, nBytes *int64) (err error) {
+	defer ct(&err)
+	// get image
+	body, err := getBody(image.Url)
+	ce(err, "get image content %s %d", image.Url, image.GoodId)
+	// sum
+	sumAry := sha512.Sum512(body)
+	//sum := sumAry[:]
+	//sumHex := fmt.Sprintf("%x", sum)
+	// update db
+	_, err = db.Exec(`UPDATE images SET sha512 = ?
+				WHERE good_id = ?`,
+		sumAry, image.GoodId)
+	ce(err, "update hash sum")
+	// stat
+	atomic.AddInt64(nBytes, int64(len(body)))
+	return
 }
 
 func downloadImage(image Image, nBytes *int64, fileExists map[string]bool, fileExistsLock *sync.Mutex) (err error) {
