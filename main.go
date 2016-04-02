@@ -212,9 +212,9 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 			defer ct(&err)
 			for _, item := range data.Data.RecordList {
 
-				if item.Is_tx != 1 { // 不支持退现的不理
-					continue
-				}
+				//if item.Is_tx != 1 { // 不支持退现的不理
+				//	continue
+				//}
 
 				if item.Discount_price == nil {
 					continue
