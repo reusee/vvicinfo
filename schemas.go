@@ -4,7 +4,6 @@ func initSchemas() {
 	db.MustExec(`CREATE TABLE IF NOT EXISTS shops (
 		shop_id INT PRIMARY KEY,
 		name CHAR(128),
-		update_at DATETIME,
 		last_update_time INT(10)
 	)
 		ROW_FORMAT=COMPRESSED

@@ -14,7 +14,7 @@ begin:
 		if e, ok := err.(*Err); ok {
 			err = e.Origin()
 		}
-		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1213 { // restart
+		if err, ok := err.(*mysql.MySQLError); ok && (err.Number == 1213 || err.Number == 1205) { // restart
 			goto begin
 		}
 		return err
@@ -25,7 +25,7 @@ begin:
 		if e, ok := err.(*Err); ok {
 			err = e.Origin()
 		}
-		if err, ok := err.(*mysql.MySQLError); ok && err.Number == 1213 { // restart
+		if err, ok := err.(*mysql.MySQLError); ok && (err.Number == 1213 || err.Number == 1205) { // restart
 			goto begin
 		}
 		return err

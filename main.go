@@ -46,7 +46,7 @@ type Image struct {
 func main() {
 	collectShops()
 	collectGoods()
-	hashImages()
+	//hashImages()
 }
 
 func collectShops() {
@@ -87,7 +87,7 @@ func collectShops() {
 		skip[id] = true
 	}
 
-	sem := make(chan bool, 8)
+	sem := make(chan bool, 4)
 	wg := new(sync.WaitGroup)
 	wg.Add(len(infos))
 	for i, shop := range infos {

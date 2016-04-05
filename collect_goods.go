@@ -15,13 +15,15 @@ func collectGoods() {
 	var ids []int64
 	err := db.Select(&ids, `SELECT good_id FROM goods
 		WHERE good_id NOT IN (
-			SELECT DISTINCT good_id FROM images)`)
+			SELECT DISTINCT good_id FROM images)
+		ORDER BY good_id DESC
+		`)
 	ce(err, "select ids")
 	pt("%d ids\n", len(ids))
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(ids))
-	sem := make(chan bool, 8)
+	sem := make(chan bool, 16)
 	l := len(ids)
 	for i, id := range ids {
 		id := id
