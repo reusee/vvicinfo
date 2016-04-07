@@ -23,7 +23,7 @@ func collectGoods() {
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(ids))
-	sem := make(chan bool, 16)
+	sem := make(chan bool, semSize)
 	l := len(ids)
 	for i, id := range ids {
 		id := id
@@ -81,7 +81,9 @@ func collectDetailPage(id int64) (n int, err error) {
 			ce(saveGoodImage(tx, id, imgSrc), "save image url")
 			n++
 		})
-		_, err = tx.Exec(`UPDATE goods SET status = ? WHERE good_id = ?`,
+		_, err = tx.Exec(`UPDATE goods 
+			SET status = $1 
+			WHERE good_id = $2`,
 			data.Data.Status,
 			id)
 		ce(err, "update status")
@@ -93,19 +95,20 @@ func collectDetailPage(id int64) (n int, err error) {
 func saveGoodImage(tx *sqlx.Tx, good_id int64, url string) (err error) {
 	defer ct(&err)
 	if url != "" {
-		res, err := tx.Exec(`INSERT INTO urls (url) VALUES (?)
-			ON DUPLICATE KEY UPDATE url_id = LAST_INSERT_ID(url_id)`,
+		_, err := tx.Exec(`INSERT INTO urls (url) VALUES ($1)
+			ON CONFLICT (url) DO NOTHING`,
 			url)
 		ce(err, "insert url")
-		url_id, err := res.LastInsertId()
-		ce(err, "get last insert id")
 		_, err = tx.Exec(`INSERT INTO images (
 					good_id,
 					url_id
 				) VALUES (
-					?,
-					?
-				) ON DUPLICATE KEY UPDATE good_id=good_id`, good_id, url_id)
+					$1,
+					(SELECT url_id FROM urls WHERE url = $2)
+				)
+				ON CONFLICT (good_id, url_id) DO NOTHING`,
+			good_id,
+			url)
 		ce(err, "insert image")
 	}
 	return

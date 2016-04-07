@@ -20,6 +20,7 @@ func init() {
 }
 
 func pt(format string, args ...interface{}) {
-	outputStrs <- fmt.Sprintf("%-20v", time.Now().Sub(start)) +
+	now := time.Now()
+	outputStrs <- fmt.Sprintf("%s %-20v", now.Format("15:04:05"), now.Sub(start)) +
 		fmt.Sprintf(format, args...)
 }

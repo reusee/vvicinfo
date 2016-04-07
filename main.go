@@ -6,18 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 )
 
-var db *sqlx.DB
-
-func init() {
-	var err error
-	db, err = sqlx.Connect("mysql", "root:ffffff@tcp(127.0.0.1:3306)/vvic?parseTime=true&autocommit=true")
-	ce(err, "connect to db")
-	initSchemas()
-}
+const semSize = 4
 
 type ShopInfo struct {
 	Qq            string
@@ -43,7 +37,38 @@ type Image struct {
 	Sha512 []byte
 }
 
+type Url struct {
+	UrlId  int `db:"url_id"`
+	Url    string
+	Sha512 []byte
+}
+
 func main() {
+	mysqlDb, err := sqlx.Connect("mysql", "root:ffffff@tcp(127.0.0.1:3306)/vvic?parseTime=true&autocommit=true")
+	ce(err, "connect mysql")
+	rows, err := mysqlDb.Queryx(`SELECT * FROM urls`)
+	ce(err, "query")
+	tx := db.MustBegin()
+	n := 0
+	for rows.Next() {
+		url := new(Url)
+		ce(rows.StructScan(&url), "scan")
+		_, err := tx.Exec(`INSERT INTO urls (url_id, url, sha512)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (url) DO NOTHING`,
+			url.UrlId,
+			url.Url,
+			url.Sha512)
+		ce(err, "insert")
+		n++
+		if n%5000 == 0 {
+			tx.Commit()
+			tx = db.MustBegin()
+			pt("%d\n", n)
+		}
+	}
+	ce(rows.Err(), "rows err")
+
 	collectShops()
 	collectGoods()
 	//hashImages()
@@ -80,14 +105,14 @@ func collectShops() {
 	ts := time.Now().Add(-time.Hour * 8).Unix()
 	err := db.Select(&ids, `SELECT shop_id
 		FROM shops 
-		WHERE last_update_time > ?`,
+		WHERE last_update_time > $1`,
 		ts)
 	ce(err, "select skip shop ids")
 	for _, id := range ids {
 		skip[id] = true
 	}
 
-	sem := make(chan bool, 4)
+	sem := make(chan bool, semSize)
 	wg := new(sync.WaitGroup)
 	wg.Add(len(infos))
 	for i, shop := range infos {
@@ -136,11 +161,8 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 	db.MustExec(`INSERT INTO shops (
 				shop_id,
 				name
-			) VALUES (
-				?,
-				?
-			)
-			ON DUPLICATE KEY UPDATE name=name`,
+			) VALUES ($1, $2)
+			ON CONFLICT (shop_id) DO UPDATE SET name = $2`,
 		shop.Id,
 		shop.Name,
 	)
@@ -148,7 +170,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 	// set existing goods' status to 0
 	db.MustExec(`UPDATE goods SET
 		status = 0
-		WHERE shop_id = ?`,
+		WHERE shop_id = $1`,
 		shop.Id)
 
 	// collect in sale goods
@@ -233,7 +255,6 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 					continue
 				}
 
-			exec:
 				_, err = tx.Exec(`INSERT INTO goods (
 					good_id,
 					price,
@@ -244,22 +265,13 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 					sort_score,
 					title,
 					status
-				) VALUES (
-					?,
-					?,
-					?,
-					?,
-					?,
-					?,
-					?,
-					?,
-					1
-				) ON DUPLICATE KEY UPDATE 
-					price=price,
-					score=score,
-					sort_score=sort_score,
-					title=title,
-					status=1
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)
+					ON CONFLICT (good_id) DO UPDATE SET
+					price = $2,
+					score = $6,
+					sort_score = $7,
+					title = $8,
+					status = 1
 				`,
 					item.Id,
 					price,
@@ -270,14 +282,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 					item.Sort_score,
 					item.Title,
 				)
-				if err != nil {
-					if err, ok := err.(*mysql.MySQLError); ok {
-						if err.Number == 1216 {
-							goto exec
-						}
-					}
-					ce(err, "exec error")
-				}
+				ce(err, "insert goods")
 
 			}
 			return
@@ -286,8 +291,8 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 	}
 
 	// 更新
-	db.MustExec(`UPDATE shops SET last_update_time = ?
-		WHERE shop_id = ?`,
+	db.MustExec(`UPDATE shops SET last_update_time = $1
+		WHERE shop_id = $2`,
 		time.Now().Unix(),
 		shop.Id)
 }

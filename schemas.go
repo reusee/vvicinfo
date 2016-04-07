@@ -1,48 +1,58 @@
 package main
 
+import (
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+)
+
+var db *sqlx.DB
+
+func init() {
+	var err error
+	db, err = sqlx.Connect("postgres", "user=reus dbname=vvic sslmode=disable")
+	ce(err, "connect to db")
+	initSchemas()
+}
+
 func initSchemas() {
 	db.MustExec(`CREATE TABLE IF NOT EXISTS shops (
 		shop_id INT PRIMARY KEY,
-		name CHAR(128),
-		last_update_time INT(10)
+		name TEXT,
+		last_update_time INT
 	)
-		ROW_FORMAT=COMPRESSED
 	`)
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS goods (
-		good_id INT UNSIGNED PRIMARY KEY,
+		good_id BIGINT PRIMARY KEY,
 		price DECIMAL(10, 2) NOT NULL,
 		shop_id INT NOT NULL,
-		added_at CHAR(10),
+		added_at TEXT,
 		category INT NOT NULL,
-		score DOUBLE,
-		sort_score DOUBLE,
-		title CHAR(255),
-		status INT(1) NOT NULL,
-		INDEX shop_id (shop_id),
-		INDEX added_at (added_at),
-		INDEX category (category),
-		INDEX status (status)
+		score DOUBLE PRECISION,
+		sort_score DOUBLE PRECISION,
+		title TEXT,
+		status SMALLINT NOT NULL
 	)
-		ROW_FORMAT=COMPRESSED
 	`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS shop_id ON goods (shop_id)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS added_at ON goods (added_at)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS category ON goods (category)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS status ON goods (status)`)
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS urls (
-		url_id INT PRIMARY KEY AUTO_INCREMENT,
-		url CHAR(255) NOT NULL,
-		sha512 VARBINARY(64),
-		UNIQUE INDEX url (url),
-		INDEX sha512 (sha512)
+		url_id SERIAL PRIMARY KEY,
+		url TEXT NOT NULL,
+		sha512 BYTEA
 	)
-		ROW_FORMAT=COMPRESSED
 	`)
+	db.MustExec(`CREATE UNIQUE INDEX IF NOT EXISTS url ON urls (url)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS sha512 ON urls (sha512)`)
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS images (
-		good_id INT UNSIGNED,
-		url_id INT NOT NULL,
-		UNIQUE INDEX good_image (good_id, url_id),
-		INDEX url_id (url_id)
+		good_id BIGINT,
+		url_id INT NOT NULL
 	)
-		ROW_FORMAT=COMPRESSED
 	`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS good_image ON images (good_id, url_id)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS url_id ON images (url_id)`)
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"crypto/sha512"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,59 +12,100 @@ import (
 	"time"
 )
 
-func hashImages() {
-	var nBytes int64
-	go func() {
-		for range time.NewTicker(time.Second).C {
-			pt("%d\n", atomic.SwapInt64(&nBytes, 0))
-		}
-	}()
-	//fileExists := make(map[string]bool)
-	//fileExistsLock := new(sync.Mutex)
-	for {
-		var images []Image
-		err := db.Select(&images, `SELECT * FROM images 
-			WHERE sha512 IS NULL 
-			LIMIT 4096`)
-		ce(err, "select images")
-		pt("hashing %d images\n", len(images))
-		wg := new(sync.WaitGroup)
-		wg.Add(len(images))
-		sem := make(chan bool, 4)
-		for _, image := range images {
-			sem <- true
-			image := image
-			go func() {
-				defer func() {
-					<-sem
-					wg.Done()
-				}()
-				ce(hashImage(image, &nBytes), "hash image")
-			}()
-		}
-		wg.Wait()
-		if len(images) == 0 {
-			break
-		}
-	}
+type UrlInfo struct {
+	Url    string
+	UrlId  int64 `db:"url_id"`
+	Sha512 []byte
 }
 
-func hashImage(image Image, nBytes *int64) (err error) {
+func hashImages() {
+start:
+	rows, err := db.Queryx(`SELECT url, url_id FROM urls
+		WHERE url_id IN ( SELECT url_id FROM images
+			WHERE good_id IN ( SELECT good_id FROM goods
+				WHERE status = 1 
+				AND category = 50010850)
+			)
+		AND sha512 IS NULL
+		`)
+	ce(err, "select urls")
+
+	rowsChan := make(chan *UrlInfo, 8)
+	go func() {
+		cnt := 0
+		tx := db.MustBegin()
+		tick := time.NewTicker(time.Second * 10)
+		for {
+			select {
+			case row := <-rowsChan:
+				tx.MustExec(`UPDATE urls SET sha512 = $1
+				WHERE url_id = $2`,
+					row.Sha512,
+					row.UrlId)
+				cnt++
+				if cnt%128 == 0 {
+					ce(tx.Commit(), "commit")
+					tx = db.MustBegin()
+				}
+			case <-tick.C:
+				ce(tx.Commit(), "commit")
+				tx = db.MustBegin()
+			}
+		}
+	}()
+
+	wg := new(sync.WaitGroup)
+	sem := make(chan bool, semSize)
+	n := 0
+	for rows.Next() {
+		row := new(UrlInfo)
+		ce(rows.StructScan(row), "row scan")
+		pt("%7d %s\n", n, row.Url)
+		n++
+		sem <- true
+		wg.Add(1)
+		go func() {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			_ = hashImage(row, rowsChan)
+		}()
+	}
+	//ce(rows.Err(), "check rows error")
+	if rows.Err() != nil {
+		goto start
+	}
+
+	time.Sleep(time.Second * 30)
+}
+
+func hashImage(info *UrlInfo, rowsChan chan *UrlInfo) (err error) {
 	defer ct(&err)
-	// get image
-	body, err := getBody(image.Url)
-	ce(err, "get image content %s %d", image.Url, image.GoodId)
-	// sum
-	sumAry := sha512.Sum512(body)
-	//sum := sumAry[:]
-	//sumHex := fmt.Sprintf("%x", sum)
-	// update db
-	_, err = db.Exec(`UPDATE images SET sha512 = ?
-				WHERE good_id = ?`,
-		sumAry, image.GoodId)
-	ce(err, "update hash sum")
-	// stat
-	atomic.AddInt64(nBytes, int64(len(body)))
+	retry := 10
+get:
+	resp, err := http.Get(info.Url)
+	if err != nil {
+		if retry > 0 {
+			retry--
+			time.Sleep(time.Second * 1)
+			goto get
+		}
+		ce(err, "get image")
+	}
+	defer resp.Body.Close()
+	content, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		if retry > 0 {
+			retry--
+			time.Sleep(time.Second * 1)
+			goto get
+		}
+		ce(err, "read content")
+	}
+	sum := sha512.Sum512(content)
+	info.Sha512 = sum[:]
+	rowsChan <- info
 	return
 }
 
@@ -95,8 +138,8 @@ func downloadImage(image Image, nBytes *int64, fileExists map[string]bool, fileE
 		ce(os.Rename(fileName+".tmp", fileName), "rename file")
 	}
 	// update db
-	_, err = db.Exec(`UPDATE images SET sha512 = ?
-				WHERE good_id = ?`,
+	_, err = db.Exec(`UPDATE images SET sha512 = $1
+				WHERE good_id = $2`,
 		sum, image.GoodId)
 	ce(err, "update hash sum")
 	// stat
