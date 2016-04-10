@@ -13,10 +13,11 @@ import (
 
 func collectGoods() {
 	var ids []int64
-	err := db.Select(&ids, `SELECT good_id FROM goods
-		WHERE good_id NOT IN (
-			SELECT DISTINCT good_id FROM images)
-		ORDER BY good_id DESC
+	err := db.Select(&ids, `SELECT g.good_id FROM goods g
+		LEFT JOIN images i
+		ON g.good_id = i.good_id
+		WHERE i.url_id IS NULL
+		ORDER BY g.good_id DESC
 		`)
 	ce(err, "select ids")
 	pt("%d ids\n", len(ids))
@@ -46,8 +47,16 @@ func collectGoods() {
 func collectDetailPage(id int64) (n int, err error) {
 	defer ct(&err)
 	pagePath := fmt.Sprintf("http://www.vvic.com/api/item/%d", id)
+	retry := 10
+get:
 	resp, err := http.Get(pagePath)
-	ce(err, "get page")
+	if err != nil {
+		if retry > 0 {
+			retry--
+			goto get
+		}
+		ce(err, "get page %s", pagePath)
+	}
 	defer resp.Body.Close()
 	var data struct {
 		Code int
@@ -58,7 +67,13 @@ func collectDetailPage(id int64) (n int, err error) {
 		}
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
-	ce(err, "decode")
+	if err != nil {
+		if retry > 0 {
+			retry--
+			goto get
+		}
+		ce(err, "decode json %s", pagePath)
+	}
 	ce(withTx(db, func(tx *sqlx.Tx) (err error) {
 		defer ct(&err)
 		for _, imgPath := range strings.Split(data.Data.Imgs, ",") {

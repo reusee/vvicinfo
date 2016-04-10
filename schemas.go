@@ -42,17 +42,19 @@ func initSchemas() {
 	db.MustExec(`CREATE TABLE IF NOT EXISTS urls (
 		url_id SERIAL PRIMARY KEY,
 		url TEXT NOT NULL,
-		sha512 BYTEA
+		sha512 BYTEA,
+		sha512_16k BYTEA
 	)
 	`)
 	db.MustExec(`CREATE UNIQUE INDEX IF NOT EXISTS url ON urls (url)`)
 	db.MustExec(`CREATE INDEX IF NOT EXISTS sha512 ON urls (sha512)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS sha512_16k ON urls (sha512_16k)`)
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS images (
 		good_id BIGINT,
 		url_id INT NOT NULL
 	)
 	`)
-	db.MustExec(`CREATE INDEX IF NOT EXISTS good_image ON images (good_id, url_id)`)
+	db.MustExec(`CREATE UNIQUE INDEX IF NOT EXISTS good_image ON images (good_id, url_id)`)
 	db.MustExec(`CREATE INDEX IF NOT EXISTS url_id ON images (url_id)`)
 }

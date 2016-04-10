@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/sha512"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,9 +13,9 @@ import (
 )
 
 type UrlInfo struct {
-	Url    string
-	UrlId  int64 `db:"url_id"`
-	Sha512 []byte
+	Url        string
+	UrlId      int64 `db:"url_id"`
+	Sha512_16k []byte
 }
 
 func hashImages() {
@@ -26,7 +26,7 @@ start:
 				WHERE status = 1 
 				AND category = 50010850)
 			)
-		AND sha512 IS NULL
+		AND sha512_16k IS NULL
 		`)
 	ce(err, "select urls")
 
@@ -38,9 +38,9 @@ start:
 		for {
 			select {
 			case row := <-rowsChan:
-				tx.MustExec(`UPDATE urls SET sha512 = $1
+				tx.MustExec(`UPDATE urls SET sha512_16k = $1
 				WHERE url_id = $2`,
-					row.Sha512,
+					row.Sha512_16k,
 					row.UrlId)
 				cnt++
 				if cnt%128 == 0 {
@@ -88,23 +88,26 @@ get:
 	if err != nil {
 		if retry > 0 {
 			retry--
-			time.Sleep(time.Second * 1)
 			goto get
 		}
 		ce(err, "get image")
 	}
 	defer resp.Body.Close()
-	content, err := ioutil.ReadAll(resp.Body)
+
+	h := sha512.New()
+	_, err = io.CopyN(h, resp.Body, 16384)
 	if err != nil {
-		if retry > 0 {
-			retry--
-			time.Sleep(time.Second * 1)
-			goto get
+		if err != nil {
+			if retry > 0 {
+				retry--
+				goto get
+			}
+			ce(err, "read body")
 		}
-		ce(err, "read content")
 	}
-	sum := sha512.Sum512(content)
-	info.Sha512 = sum[:]
+
+	sum := h.Sum(nil)
+	info.Sha512_16k = sum[:]
 	rowsChan <- info
 	return
 }

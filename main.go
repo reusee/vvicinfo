@@ -6,12 +6,11 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
 
-const semSize = 4
+const semSize = 8
 
 type ShopInfo struct {
 	Qq            string
@@ -44,34 +43,9 @@ type Url struct {
 }
 
 func main() {
-	mysqlDb, err := sqlx.Connect("mysql", "root:ffffff@tcp(127.0.0.1:3306)/vvic?parseTime=true&autocommit=true")
-	ce(err, "connect mysql")
-	rows, err := mysqlDb.Queryx(`SELECT * FROM urls`)
-	ce(err, "query")
-	tx := db.MustBegin()
-	n := 0
-	for rows.Next() {
-		url := new(Url)
-		ce(rows.StructScan(&url), "scan")
-		_, err := tx.Exec(`INSERT INTO urls (url_id, url, sha512)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (url) DO NOTHING`,
-			url.UrlId,
-			url.Url,
-			url.Sha512)
-		ce(err, "insert")
-		n++
-		if n%5000 == 0 {
-			tx.Commit()
-			tx = db.MustBegin()
-			pt("%d\n", n)
-		}
-	}
-	ce(rows.Err(), "rows err")
-
-	collectShops()
-	collectGoods()
-	//hashImages()
+	//collectShops()
+	//collectGoods()
+	hashImages()
 }
 
 func collectShops() {
@@ -128,6 +102,8 @@ func collectShops() {
 		}()
 	}
 	wg.Wait()
+
+	pt("shops collected\n")
 }
 
 var selectedMarkets = map[string]bool{
