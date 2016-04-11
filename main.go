@@ -10,7 +10,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const semSize = 8
+const semSize = 2
 
 type ShopInfo struct {
 	Qq            string

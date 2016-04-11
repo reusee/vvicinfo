@@ -19,17 +19,6 @@ type UrlInfo struct {
 }
 
 func hashImages() {
-start:
-	rows, err := db.Queryx(`SELECT url, url_id FROM urls
-		WHERE url_id IN ( SELECT url_id FROM images
-			WHERE good_id IN ( SELECT good_id FROM goods
-				WHERE status = 1 
-				AND category = 50010850)
-			)
-		AND sha512_16k IS NULL
-		`)
-	ce(err, "select urls")
-
 	rowsChan := make(chan *UrlInfo, 8)
 	go func() {
 		cnt := 0
@@ -54,16 +43,24 @@ start:
 		}
 	}()
 
-	wg := new(sync.WaitGroup)
-	sem := make(chan bool, semSize)
 	n := 0
-	for rows.Next() {
-		row := new(UrlInfo)
-		ce(rows.StructScan(row), "row scan")
+
+start:
+	var rows []*UrlInfo
+	err := db.Select(&rows, `SELECT url, url_id FROM urls
+		WHERE sha512_16k IS NULL
+		ORDER BY url_id DESC
+		LIMIT 4096
+		`)
+	ce(err, "select urls")
+
+	wg := new(sync.WaitGroup)
+	wg.Add(len(rows))
+	sem := make(chan bool, semSize)
+	for _, row := range rows {
 		pt("%7d %s\n", n, row.Url)
 		n++
 		sem <- true
-		wg.Add(1)
 		go func() {
 			defer func() {
 				<-sem
@@ -72,8 +69,9 @@ start:
 			_ = hashImage(row, rowsChan)
 		}()
 	}
-	//ce(rows.Err(), "check rows error")
-	if rows.Err() != nil {
+	wg.Wait()
+
+	if len(rows) > 0 {
 		goto start
 	}
 
