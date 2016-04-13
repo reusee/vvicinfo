@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -10,7 +11,16 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const semSize = 2
+var semSize int
+
+func init() {
+	semSizeStr := os.Args[1]
+	var err error
+	semSize, err = strconv.Atoi(semSizeStr)
+	if err != nil {
+		panic("invalid sem size")
+	}
+}
 
 type ShopInfo struct {
 	Qq            string

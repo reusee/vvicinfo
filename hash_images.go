@@ -2,13 +2,9 @@ package main
 
 import (
 	"crypto/sha512"
-	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -19,9 +15,12 @@ type UrlInfo struct {
 }
 
 func hashImages() {
-	rowsChan := make(chan *UrlInfo, 8)
+
+	// updater
+	rowsChan := make(chan *UrlInfo, 1024)
 	go func() {
 		cnt := 0
+		n := 0
 		tx := db.MustBegin()
 		tick := time.NewTicker(time.Second * 10)
 		for {
@@ -32,48 +31,64 @@ func hashImages() {
 					row.Sha512_16k,
 					row.UrlId)
 				cnt++
+				n++
 				if cnt%128 == 0 {
 					ce(tx.Commit(), "commit")
 					tx = db.MustBegin()
+					cnt = 0
 				}
 			case <-tick.C:
 				ce(tx.Commit(), "commit")
 				tx = db.MustBegin()
+				cnt = 0
+				pt("%d\n", n)
 			}
 		}
 	}()
 
-	n := 0
+	// job provider
+	jobs := make(chan *UrlInfo, 30000)
+	go func() {
+		for {
+			rows, err := db.Queryx(`SELECT url, url_id FROM urls
+				WHERE url_id IN ( SELECT distinct url_id FROM ( SELECT u.url_id FROM urls u
+					LEFT JOIN images i
+					ON u.url_id = i.url_id
+					LEFT JOIN goods g
+					ON g.good_id = i.good_id
+					WHERE g.status = 1
+					AND g.added_at > '2016-01-01'
+					AND u.sha512_16k IS NULL
+					LIMIT 1024
+				) as tmp)
+			`)
+			ce(err, "query")
+			pt("query done\n")
+			for rows.Next() {
+				row := new(UrlInfo)
+				ce(rows.StructScan(&row), "scan")
+				jobs <- row
+			}
+			ce(rows.Err(), "rows")
 
-start:
-	var rows []*UrlInfo
-	err := db.Select(&rows, `SELECT url, url_id FROM urls
-		WHERE sha512_16k IS NULL
-		ORDER BY url_id DESC
-		LIMIT 4096
-		`)
-	ce(err, "select urls")
+		}
+	}()
 
+	// worker
 	wg := new(sync.WaitGroup)
-	wg.Add(len(rows))
 	sem := make(chan bool, semSize)
-	for _, row := range rows {
-		pt("%7d %s\n", n, row.Url)
-		n++
+	for row := range jobs {
+		wg.Add(1)
 		sem <- true
 		go func() {
 			defer func() {
 				<-sem
 				wg.Done()
 			}()
-			_ = hashImage(row, rowsChan)
+			ce(hashImage(row, rowsChan), "hash")
 		}()
 	}
 	wg.Wait()
-
-	if len(rows) > 0 {
-		goto start
-	}
 
 	time.Sleep(time.Second * 30)
 }
@@ -94,56 +109,19 @@ get:
 
 	h := sha512.New()
 	_, err = io.CopyN(h, resp.Body, 16384)
+	if err == io.EOF {
+		err = nil
+	}
 	if err != nil {
-		if err != nil {
-			if retry > 0 {
-				retry--
-				goto get
-			}
-			ce(err, "read body")
+		if retry > 0 {
+			retry--
+			goto get
 		}
+		ce(err, "read body")
 	}
 
 	sum := h.Sum(nil)
 	info.Sha512_16k = sum[:]
 	rowsChan <- info
-	return
-}
-
-func downloadImage(image Image, nBytes *int64, fileExists map[string]bool, fileExistsLock *sync.Mutex) (err error) {
-	defer ct(&err)
-	// get image
-	body, err := getBody(image.Url)
-	ce(err, "get image content %s %d", image.Url, image.GoodId)
-	// sum
-	sumAry := sha512.Sum512(body)
-	sum := sumAry[:]
-	sumHex := fmt.Sprintf("%x", sum)
-	// write to tmp
-	var exists bool
-	fileExistsLock.Lock()
-	if _, exists = fileExists[sumHex]; exists { // only one goroutine should be write to file
-	} else {
-		fileExists[sumHex] = true
-	}
-	fileExistsLock.Unlock()
-	if !exists {
-		fileName := filepath.Join("images", fmt.Sprintf("%x%s", sum,
-			filepath.Ext(image.Url)))
-		tmpFile, err := os.Create(fileName + ".tmp")
-		ce(err, "create tmp file")
-		_, err = tmpFile.Write(body)
-		ce(err, "write tmp file")
-		tmpFile.Close()
-		// rename
-		ce(os.Rename(fileName+".tmp", fileName), "rename file")
-	}
-	// update db
-	_, err = db.Exec(`UPDATE images SET sha512 = $1
-				WHERE good_id = $2`,
-		sum, image.GoodId)
-	ce(err, "update hash sum")
-	// stat
-	atomic.AddInt64(nBytes, int64(len(body)))
 	return
 }
