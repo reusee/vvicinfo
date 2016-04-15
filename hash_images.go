@@ -47,7 +47,7 @@ func hashImages() {
 	}()
 
 	// job provider
-	jobs := make(chan *UrlInfo, 30000)
+	jobs := make(chan *UrlInfo)
 	go func() {
 		for {
 			rows, err := db.Queryx(`SELECT url, url_id FROM urls
@@ -59,18 +59,19 @@ func hashImages() {
 					WHERE g.status = 1
 					AND g.added_at > '2016-01-01'
 					AND u.sha512_16k IS NULL
-					LIMIT 1024
+					LIMIT 4096
 				) as tmp)
 			`)
 			ce(err, "query")
-			pt("query done\n")
+			n := 0
 			for rows.Next() {
 				row := new(UrlInfo)
 				ce(rows.StructScan(&row), "scan")
 				jobs <- row
+				n++
 			}
 			ce(rows.Err(), "rows")
-
+			pt("added %d jobs\n", n)
 		}
 	}()
 
