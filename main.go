@@ -53,8 +53,8 @@ type Url struct {
 }
 
 func main() {
-	//collectShops()
-	//collectGoods()
+	collectShops()
+	collectGoods()
 	hashImages()
 }
 

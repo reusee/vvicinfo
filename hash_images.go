@@ -50,17 +50,23 @@ func hashImages() {
 	jobs := make(chan *UrlInfo)
 	go func() {
 		for {
+			/*
+				rows, err := db.Queryx(`SELECT url, url_id FROM urls
+					WHERE url_id IN ( SELECT distinct url_id FROM ( SELECT u.url_id FROM urls u
+						LEFT JOIN images i
+						ON u.url_id = i.url_id
+						LEFT JOIN goods g
+						ON g.good_id = i.good_id
+						WHERE g.status = 1
+						AND g.added_at > '2016-01-01'
+						AND u.sha512_16k IS NULL
+						LIMIT 4096
+					) as tmp)
+				`)
+			*/
 			rows, err := db.Queryx(`SELECT url, url_id FROM urls
-				WHERE url_id IN ( SELECT distinct url_id FROM ( SELECT u.url_id FROM urls u
-					LEFT JOIN images i
-					ON u.url_id = i.url_id
-					LEFT JOIN goods g
-					ON g.good_id = i.good_id
-					WHERE g.status = 1
-					AND g.added_at > '2016-01-01'
-					AND u.sha512_16k IS NULL
-					LIMIT 4096
-				) as tmp)
+				WHERE sha512_16k IS NULL
+				LIMIT 4096
 			`)
 			ce(err, "query")
 			n := 0
@@ -86,7 +92,7 @@ func hashImages() {
 				<-sem
 				wg.Done()
 			}()
-			ce(hashImage(row, rowsChan), "hash")
+			hashImage(row, rowsChan)
 		}()
 	}
 	wg.Wait()
