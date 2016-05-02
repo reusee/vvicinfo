@@ -12,6 +12,7 @@ import (
 )
 
 func collectGoods() {
+	pt("select good ids to fetch images\n")
 	var ids []int64
 	err := db.Select(&ids, `SELECT g.good_id FROM goods g
 		LEFT JOIN images i

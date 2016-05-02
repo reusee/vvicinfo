@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"sync"
@@ -20,6 +22,13 @@ func init() {
 	if err != nil {
 		panic("invalid sem size")
 	}
+
+	go func() {
+		err = http.ListenAndServe(":28888", nil)
+		if err != nil {
+			panic(err)
+		}
+	}()
 }
 
 type ShopInfo struct {
@@ -53,9 +62,9 @@ type Url struct {
 }
 
 func main() {
+	hashImages()
 	collectShops()
 	collectGoods()
-	hashImages()
 }
 
 func collectShops() {

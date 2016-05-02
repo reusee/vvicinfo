@@ -31,9 +31,10 @@ func main() {
 	var res []struct {
 		Avg_score float64
 		Shop_id   int
+		Count     int
 	}
 	err = db.Select(&res, `
-		SELECT AVG(score) AS avg_score, a.shop_id
+		SELECT AVG(score) AS avg_score, a.shop_id, COUNT(*) as count
 		FROM goods a
 		LEFT JOIN shops b
 		ON a.shop_id = b.shop_id
@@ -41,11 +42,13 @@ func main() {
 		WHERE
 		added_at > $1
 		AND title LIKE $2
+		AND a.status > 0
 
 		GROUP BY a.shop_id
 		HAVING COUNT(*) > $3
 
 		ORDER BY avg_score DESC, a.shop_id ASC
+		--ORDER BY count DESC, a.shop_id ASC
 		LIMIT $4
 	`,
 		earlistShelfDate,

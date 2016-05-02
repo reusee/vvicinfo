@@ -2,9 +2,11 @@ package main
 
 import (
 	"crypto/sha512"
+	"github.com/jmoiron/sqlx"
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,92 +17,47 @@ type UrlInfo struct {
 }
 
 func hashImages() {
-
-	// updater
-	rowsChan := make(chan *UrlInfo, 1024)
+	var n int64
 	go func() {
-		cnt := 0
-		n := 0
+		for range time.NewTicker(time.Second * 5).C {
+			pt("%d\n", atomic.LoadInt64(&n))
+		}
+	}()
+
+	for {
+		t0 := time.Now()
+		var infos []*UrlInfo
+		err := db.Select(&infos, `SELECT url, url_id FROM urls
+			WHERE sha512_16k IS NULL
+			LIMIT 1024`)
+		ce(err, "select")
+		if len(infos) == 0 {
+			break
+		}
+		pt("select %d infos\n", len(infos))
 		tx := db.MustBegin()
-		tick := time.NewTicker(time.Second * 10)
-		for {
-			select {
-			case row := <-rowsChan:
-				tx.MustExec(`UPDATE urls SET sha512_16k = $1
-				WHERE url_id = $2`,
-					row.Sha512_16k,
-					row.UrlId)
-				cnt++
-				n++
-				if cnt%128 == 0 {
-					ce(tx.Commit(), "commit")
-					tx = db.MustBegin()
-					cnt = 0
-				}
-			case <-tick.C:
-				ce(tx.Commit(), "commit")
-				tx = db.MustBegin()
-				cnt = 0
-				pt("%d\n", n)
-			}
-		}
-	}()
-
-	// job provider
-	jobs := make(chan *UrlInfo)
-	go func() {
-		for {
-			/*
-				rows, err := db.Queryx(`SELECT url, url_id FROM urls
-					WHERE url_id IN ( SELECT distinct url_id FROM ( SELECT u.url_id FROM urls u
-						LEFT JOIN images i
-						ON u.url_id = i.url_id
-						LEFT JOIN goods g
-						ON g.good_id = i.good_id
-						WHERE g.status = 1
-						AND g.added_at > '2016-01-01'
-						AND u.sha512_16k IS NULL
-						LIMIT 4096
-					) as tmp)
-				`)
-			*/
-			rows, err := db.Queryx(`SELECT url, url_id FROM urls
-				WHERE sha512_16k IS NULL
-				LIMIT 4096
-			`)
-			ce(err, "query")
-			n := 0
-			for rows.Next() {
-				row := new(UrlInfo)
-				ce(rows.StructScan(&row), "scan")
-				jobs <- row
-				n++
-			}
-			ce(rows.Err(), "rows")
-			pt("added %d jobs\n", n)
-		}
-	}()
-
-	// worker
-	wg := new(sync.WaitGroup)
-	sem := make(chan bool, semSize)
-	for row := range jobs {
-		wg.Add(1)
-		sem <- true
-		go func() {
-			defer func() {
-				<-sem
-				wg.Done()
+		wg := new(sync.WaitGroup)
+		wg.Add(len(infos))
+		sem := make(chan bool, semSize)
+		for _, info := range infos {
+			sem <- true
+			go func() {
+				defer func() {
+					<-sem
+					wg.Done()
+					atomic.AddInt64(&n, 1)
+				}()
+				hashImage(info, tx)
 			}()
-			hashImage(row, rowsChan)
-		}()
+		}
+		wg.Wait()
+		tx.Commit()
+		pt("collect %d in %v\n", len(infos), time.Now().Sub(t0))
 	}
-	wg.Wait()
 
-	time.Sleep(time.Second * 30)
 }
 
-func hashImage(info *UrlInfo, rowsChan chan *UrlInfo) (err error) {
+func hashImage(info *UrlInfo, tx *sqlx.Tx) (err error) {
 	defer ct(&err)
 	retry := 10
 get:
@@ -128,7 +85,10 @@ get:
 	}
 
 	sum := h.Sum(nil)
-	info.Sha512_16k = sum[:]
-	rowsChan <- info
+	_, err = tx.Exec(`UPDATE urls SET sha512_16k = $1
+		WHERE url_id = $2`,
+		sum,
+		info.UrlId)
+	ce(err, "update hash")
 	return
 }
