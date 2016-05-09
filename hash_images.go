@@ -29,6 +29,7 @@ func hashImages() {
 		var infos []*UrlInfo
 		err := db.Select(&infos, `SELECT url, url_id FROM urls
 			WHERE sha512_16k IS NULL
+			ORDER BY url_id DESC
 			LIMIT 1024`)
 		ce(err, "select")
 		if len(infos) == 0 {

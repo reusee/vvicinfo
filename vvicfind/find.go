@@ -41,6 +41,7 @@ func main() {
 			ON i.url_id = u.url_id
 
 			WHERE sha512_16k = $1
+			ORDER BY g.status DESC
 			`,
 			sum)
 		ce(err, "find good ids")
