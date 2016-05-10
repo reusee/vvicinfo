@@ -48,6 +48,12 @@ func initSchemas() {
 	`)
 	db.MustExec(`CREATE UNIQUE INDEX IF NOT EXISTS url ON urls (url)`)
 	db.MustExec(`CREATE INDEX IF NOT EXISTS sha512 ON urls (sha512)`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS 
+		urls_sha512_16k_not_null_idx 
+		ON urls (sha512_16k) WHERE sha512_16k IS NOT NULL`)
+	db.MustExec(`CREATE INDEX IF NOT EXISTS 
+		urls_sha512_16k_null_idx 
+		ON urls (sha512_16k) WHERE sha512_16k IS NULL`)
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS images (
 		good_id BIGINT,
