@@ -62,9 +62,15 @@ type Url struct {
 }
 
 func main() {
-	hashImages()
-	collectShops()
-	collectGoods()
+	if len(os.Args) > 2 {
+		collectShops()
+		collectGoods()
+		hashImages()
+	} else {
+		hashImages()
+		collectShops()
+		collectGoods()
+	}
 }
 
 func collectShops() {
@@ -95,7 +101,7 @@ func collectShops() {
 
 	skip := make(map[int]bool)
 	var ids []int
-	ts := time.Now().Add(-time.Hour * 8).Unix()
+	ts := time.Now().Add(-time.Hour * 16).Unix()
 	err := db.Select(&ids, `SELECT shop_id
 		FROM shops 
 		WHERE last_update_time > $1`,
@@ -117,7 +123,10 @@ func collectShops() {
 				wg.Done()
 				<-sem
 			}()
-			collectShop(skip, i, shop)
+			err := collectShop(skip, i, shop)
+			if err != nil {
+				pt("%v\n", err)
+			}
 		}()
 	}
 	wg.Wait()
@@ -125,27 +134,8 @@ func collectShops() {
 	pt("shops collected\n")
 }
 
-var selectedMarkets = map[string]bool{
-	"国大":  true, // 1672
-	"女人街": true, // 1463
-	"国投":  true, // 1179
-	"大西豪": true, // 794
-	"宝华":  true, // 430
-	"大时代": true, // 424
-	"佰润":  true, // 309
-	"非凡":  true, // 244
-	"柏美":  true, // 144
-
-	"新金马": true, // 735
-	"富丽":  true, // 648
-}
-
-func collectShop(skip map[int]bool, i int, shop ShopInfo) {
-	// 其他市场的不管
-	//if _, ok := selectedMarkets[shop.MarketName]; !ok {
-	//	return
-	//}
-
+func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
+	defer ct(&err)
 	pt("%50s %d\n", "shop", i)
 
 	// 近期采集过的不管
@@ -188,8 +178,8 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 					//Tid            string  // ??
 					//Is_shop_auth   int     // ?
 					//Price          float64 // 原价
-					Id string
-					//Art_no         string // 货号
+					Id     string
+					Art_no string // 档口货号
 					//Sub_name       string // 市场名
 					//Shop_name      string // 档口名
 					//Shop_id        int
@@ -259,14 +249,16 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 					score,
 					sort_score,
 					title,
-					status
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)
+					status,
+					internal_id
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
 					ON CONFLICT (good_id) DO UPDATE SET
 					price = $2,
 					score = $6,
 					sort_score = $7,
 					title = $8,
-					status = 1
+					status = 1,
+					internal_id = $9
 				`,
 					item.Id,
 					price,
@@ -276,6 +268,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 					item.Score,
 					item.Sort_score,
 					item.Title,
+					item.Art_no,
 				)
 				ce(err, "insert goods")
 
@@ -290,4 +283,6 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) {
 		WHERE shop_id = $2`,
 		time.Now().Unix(),
 		shop.Id)
+
+	return
 }

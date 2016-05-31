@@ -24,6 +24,7 @@ func initSchemas() {
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS goods (
 		good_id BIGINT PRIMARY KEY,
+		internal_id TEXT,
 		price DECIMAL(10, 2) NOT NULL,
 		shop_id INT NOT NULL,
 		added_at TEXT,
@@ -42,18 +43,10 @@ func initSchemas() {
 	db.MustExec(`CREATE TABLE IF NOT EXISTS urls (
 		url_id SERIAL PRIMARY KEY,
 		url TEXT NOT NULL,
-		sha512 BYTEA,
 		sha512_16k BYTEA
 	)
 	`)
 	db.MustExec(`CREATE UNIQUE INDEX IF NOT EXISTS url ON urls (url)`)
-	db.MustExec(`CREATE INDEX IF NOT EXISTS sha512 ON urls (sha512)`)
-	db.MustExec(`CREATE INDEX IF NOT EXISTS 
-		urls_sha512_16k_not_null_idx 
-		ON urls (sha512_16k) WHERE sha512_16k IS NOT NULL`)
-	db.MustExec(`CREATE INDEX IF NOT EXISTS 
-		urls_sha512_16k_null_idx 
-		ON urls (sha512_16k) WHERE sha512_16k IS NULL`)
 
 	db.MustExec(`CREATE TABLE IF NOT EXISTS images (
 		good_id BIGINT,

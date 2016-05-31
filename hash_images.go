@@ -27,10 +27,12 @@ func hashImages() {
 	for {
 		t0 := time.Now()
 		var infos []*UrlInfo
-		err := db.Select(&infos, `SELECT url, url_id FROM urls
-			WHERE sha512_16k IS NULL
-			ORDER BY url_id DESC
-			LIMIT 1024`)
+		err := db.Select(&infos, `SELECT url, h.url_id
+			FROM not_hashed h
+			LEFT JOIN urls u ON h.url_id = u.url_id
+			LIMIT 1024
+			`,
+		)
 		ce(err, "select")
 		if len(infos) == 0 {
 			break
@@ -48,7 +50,10 @@ func hashImages() {
 					wg.Done()
 					atomic.AddInt64(&n, 1)
 				}()
-				hashImage(info, tx)
+				err := hashImage(info, tx)
+				if err != nil {
+					pt("%v\n", err)
+				}
 			}()
 		}
 		wg.Wait()
@@ -86,10 +91,17 @@ get:
 	}
 
 	sum := h.Sum(nil)
-	_, err = tx.Exec(`UPDATE urls SET sha512_16k = $1
+	_, err = tx.Exec(`UPDATE urls 
+		SET sha512_16k = $1
 		WHERE url_id = $2`,
 		sum,
 		info.UrlId)
 	ce(err, "update hash")
+	_, err = tx.Exec(`DELETE FROM not_hashed
+		WHERE url_id = $1
+		`,
+		info.UrlId,
+	)
+	ce(err, "delete from not_hashed")
 	return
 }

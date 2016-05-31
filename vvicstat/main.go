@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -23,13 +22,21 @@ func init() {
 }
 
 func main() {
-	err := selectMostManufacturedItems(os.Args[1], os.Args[2])
+	err := selectMostManufacturedItems(os.Args[1], os.Args[2:])
 	ce(err, "selectMostManufacturedItems")
 }
 
-func selectMostManufacturedItems(dateFrom, keyword string) (err error) {
+func selectMostManufacturedItems(dateFrom string, keywords []string) (err error) {
 	defer ct(&err)
-	pt("// === from %s keyword %s ===\n", dateFrom, keyword)
+	pt("// === from %s keywords %v ===\n", dateFrom, keywords)
+	likeStmt := "("
+	for i, keyword := range keywords {
+		if i > 0 {
+			likeStmt += " AND "
+		}
+		likeStmt += "a.title LIKE '%" + keyword + "%'"
+	}
+	likeStmt += ")"
 	rows, err := db.Queryx(`SELECT 
 		a.good_id, a.shop_id, c.sha512_16k
 		FROM goods a
@@ -38,11 +45,10 @@ func selectMostManufacturedItems(dateFrom, keyword string) (err error) {
 		LEFT JOIN shops d ON a.shop_id = d.shop_id
 		WHERE
 		a.added_at > $1
-		AND a.title LIKE $2
+		AND `+likeStmt+`
 		AND a.status = 1
 		`,
 		dateFrom,
-		"%"+keyword+"%",
 	)
 	ce(err, "select items")
 	n := 0
@@ -119,6 +125,7 @@ func selectMostManufacturedItems(dateFrom, keyword string) (err error) {
 	var entries []Entry
 
 	// collect
+	goodOccurCount := make(map[int64]int)
 	for i, key := range selectedKeys {
 		//if i > 1000 {
 		//	break
@@ -139,7 +146,19 @@ func selectMostManufacturedItems(dateFrom, keyword string) (err error) {
 
 		var goodIds []int64
 		for goodId := range hashGoodStats[key] {
-			goodIds = append(goodIds, goodId)
+			if n, ok := goodOccurCount[goodId]; !ok { // new good id
+				goodIds = append(goodIds, goodId)
+				goodOccurCount[goodId] = 1
+			} else {
+				if n < 2 {
+					goodIds = append(goodIds, goodId)
+					goodOccurCount[goodId]++
+				}
+				// skip n >= 2
+			}
+		}
+		if len(goodIds) == 0 {
+			continue
 		}
 		query, args, err := sqlx.In(`SELECT a.good_id, a.price
 			FROM goods a
@@ -165,54 +184,6 @@ func selectMostManufacturedItems(dateFrom, keyword string) (err error) {
 	buf := new(bytes.Buffer)
 	ce(json.Indent(buf, j, "", "    "), "indent")
 	pt("%s\n", buf.Bytes())
-
-	return
-}
-
-func selectShopsByScore(keyword string) (err error) {
-	defer ct(&err)
-
-	minimalGoodsCount := 5
-	earlistShelfDate := "2016-03-01"
-	maxResults := 30
-	browser := "chromium"
-
-	var res []struct {
-		Avg_score float64
-		Shop_id   int
-		Count     int
-	}
-	err = db.Select(&res, `
-		SELECT AVG(score) AS avg_score, a.shop_id, COUNT(*) as count
-		FROM goods a
-		LEFT JOIN shops b
-		ON a.shop_id = b.shop_id
-
-		WHERE
-		added_at > $1
-		AND title LIKE $2
-		AND a.status > 0
-
-		GROUP BY a.shop_id
-		HAVING COUNT(*) > $3
-
-		ORDER BY avg_score DESC, a.shop_id ASC
-		--ORDER BY count DESC, a.shop_id ASC
-		LIMIT $4
-	`,
-		earlistShelfDate,
-		"%"+keyword+"%",
-		minimalGoodsCount,
-		maxResults,
-	)
-	ce(err, "select")
-
-	for _, row := range res {
-		fmt.Printf("%d\n", row.Shop_id)
-		exec.Command(browser, fmt.Sprintf(
-			"http://www.vvic.com/shop.html?shop_id=%d&q=%s&sort=up_time-desc",
-			row.Shop_id, keyword)).Start()
-	}
 
 	return
 }
