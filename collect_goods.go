@@ -17,16 +17,15 @@ func collectGoods() {
 do:
 	pt("select good ids to fetch images\n")
 	var ids []int64
-	//err := db.Select(&ids, `SELECT g.good_id FROM candidates c
-	//	LEFT JOIN goods g ON c.good_id = g.good_id
-	//	WHERE sizes IS NULL
-	//	ORDER BY g.good_id DESC
+	//err := db.Select(&ids, `SELECT distinct g.good_id FROM goods g
+	//	LEFT JOIN images i ON g.good_id = i.good_id
+	//	LEFT JOIN urls u ON u.url_id = i.url_id
+	//	WHERE url IS NULL
+	//	LIMIT 4096
 	//	`,
 	//)
-	err := db.Select(&ids, `SELECT good_id FROM goods g
-		WHERE sizes IS NULL
-		--ORDER BY good_id DESC
-		LIMIT 4096
+	err := db.Select(&ids, `SELECT good_id FROM goods
+		WHERE is_new = true
 		`,
 	)
 	ce(err, "select ids")

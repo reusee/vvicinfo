@@ -101,7 +101,8 @@ func collectShops() {
 
 	skip := make(map[int]bool)
 	var ids []int
-	ts := time.Now().Add(-time.Hour * 16).Unix()
+	//ts := time.Now().Add(-time.Hour * 16).Unix()
+	ts := time.Now().Add(-time.Hour * 8).Unix()
 	err := db.Select(&ids, `SELECT shop_id
 		FROM shops 
 		WHERE last_update_time > $1`,
@@ -219,10 +220,6 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 			defer ct(&err)
 			for _, item := range data.Data.RecordList {
 
-				//if item.Is_tx != 1 { // 不支持退现的不理
-				//	continue
-				//}
-
 				if item.Discount_price == nil {
 					continue
 				}
@@ -240,7 +237,8 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					continue
 				}
 
-				_, err = tx.Exec(`INSERT INTO goods (
+				var isNew bool
+				err := tx.QueryRow(`INSERT INTO goods (
 					good_id,
 					price,
 					shop_id,
@@ -250,15 +248,18 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					sort_score,
 					title,
 					status,
-					internal_id
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
+					internal_id,
+					is_new
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10)
 					ON CONFLICT (good_id) DO UPDATE SET
 					price = $2,
 					score = $6,
 					sort_score = $7,
 					title = $8,
 					status = 1,
-					internal_id = $9
+					internal_id = $9,
+					is_new = false
+					RETURNING is_new
 				`,
 					item.Id,
 					price,
@@ -269,7 +270,8 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					item.Sort_score,
 					item.Title,
 					item.Art_no,
-				)
+					true,
+				).Scan(&isNew)
 				ce(err, "insert goods")
 
 			}

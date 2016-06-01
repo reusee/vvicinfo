@@ -24,16 +24,28 @@ func hashImages() {
 		}
 	}()
 
+	failCount := make(map[int64]int)
+	failCountLock := new(sync.Mutex)
+
 	for {
+		pt("%v\n", failCount)
 		t0 := time.Now()
 		var infos []*UrlInfo
 		err := db.Select(&infos, `SELECT url, h.url_id
 			FROM not_hashed h
 			LEFT JOIN urls u ON h.url_id = u.url_id
-			LIMIT 1024
+			LIMIT 2048
 			`,
 		)
 		ce(err, "select")
+		var filtered []*UrlInfo
+		for _, info := range infos {
+			if failCount[info.UrlId] > 5 {
+				continue
+			}
+			filtered = append(filtered, info)
+		}
+		infos = filtered
 		if len(infos) == 0 {
 			break
 		}
@@ -53,6 +65,9 @@ func hashImages() {
 				err := hashImage(info, tx)
 				if err != nil {
 					pt("%v\n", err)
+					failCountLock.Lock()
+					failCount[info.UrlId]++
+					failCountLock.Unlock()
 				}
 			}()
 		}
