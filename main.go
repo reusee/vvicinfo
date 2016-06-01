@@ -237,7 +237,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					continue
 				}
 
-				var isNew bool
+				var imagesCollected bool
 				err := tx.QueryRow(`INSERT INTO goods (
 					good_id,
 					price,
@@ -248,18 +248,16 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					sort_score,
 					title,
 					status,
-					internal_id,
-					is_new
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10)
+					internal_id
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
 					ON CONFLICT (good_id) DO UPDATE SET
 					price = $2,
 					score = $6,
 					sort_score = $7,
 					title = $8,
 					status = 1,
-					internal_id = $9,
-					is_new = false
-					RETURNING is_new
+					internal_id = $9
+					RETURNING images_collected
 				`,
 					item.Id,
 					price,
@@ -270,9 +268,17 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					item.Sort_score,
 					item.Title,
 					item.Art_no,
-					true,
-				).Scan(&isNew)
+				).Scan(&imagesCollected)
 				ce(err, "insert goods")
+				if !imagesCollected { // insert into images_not_collected
+					_, err = tx.Exec(`INSERT INTO images_not_collected (good_id)
+						VALUES ($1)
+						ON CONFLICT (good_id) DO NOTHING
+						`,
+						item.Id,
+					)
+					ce(err, "insert into images_not_collected")
+				}
 
 			}
 			return

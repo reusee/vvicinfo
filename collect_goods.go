@@ -17,17 +17,7 @@ func collectGoods() {
 do:
 	pt("select good ids to fetch images\n")
 	var ids []int64
-	//err := db.Select(&ids, `SELECT distinct g.good_id FROM goods g
-	//	LEFT JOIN images i ON g.good_id = i.good_id
-	//	LEFT JOIN urls u ON u.url_id = i.url_id
-	//	WHERE url IS NULL
-	//	LIMIT 4096
-	//	`,
-	//)
-	err := db.Select(&ids, `SELECT good_id FROM goods
-		WHERE is_new = true
-		`,
-	)
+	err := db.Select(&ids, `SELECT good_id FROM images_not_collected`)
 	ce(err, "select ids")
 	if len(ids) == 0 {
 		return
@@ -95,6 +85,7 @@ get:
 	}
 	ce(withTx(db, func(tx *sqlx.Tx) (err error) {
 		defer ct(&err)
+		nImages := 0
 		for _, imgPath := range strings.Split(data.Data.Imgs, ",") {
 			if imgPath == "" {
 				continue
@@ -104,6 +95,7 @@ get:
 			}
 			ce(saveGoodImage(tx, id, imgPath), "save image url")
 			n++
+			nImages++
 		}
 		doc, err := goquery.NewDocumentFromReader(strings.NewReader(data.Data.Desc))
 		ce(err, "goquery doc")
@@ -114,6 +106,7 @@ get:
 			}
 			ce(saveGoodImage(tx, id, imgSrc), "save image url")
 			n++
+			nImages++
 		})
 		_, err = tx.Exec(`UPDATE goods 
 			SET status = $1, sizes = $2, colors = $3
@@ -124,6 +117,21 @@ get:
 			id,
 		)
 		ce(err, "update status")
+		if nImages > 0 {
+			_, err = tx.Exec(`DELETE FROM images_not_collected
+				WHERE good_id = $1
+				`,
+				id,
+			)
+			ce(err, "delete images_not_collected entry")
+			_, err = tx.Exec(`UPDATE goods
+				SET images_collected = true
+				WHERE good_id = $1
+				`,
+				id,
+			)
+			ce(err, "update goods.images_collected")
+		}
 		return
 	}), "tx")
 	return
