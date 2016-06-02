@@ -49,7 +49,7 @@ func hashImages() {
 		ce(err, "select")
 		var filtered []*UrlInfo
 		for _, info := range infos {
-			if failCount[info.UrlId] > 5 {
+			if failCount[info.UrlId] > 3 {
 				continue
 			}
 			filtered = append(filtered, info)
@@ -64,6 +64,7 @@ func hashImages() {
 		wg.Add(len(infos))
 		sem := make(chan bool, semSize)
 		for _, info := range infos {
+			info := info
 			sem <- true
 			go func() {
 				defer func() {
