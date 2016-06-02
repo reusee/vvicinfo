@@ -137,7 +137,7 @@ func collectShops() {
 
 func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 	defer ct(&err)
-	pt("%50s %d\n", "shop", i)
+	pt("%20s %d\n", "shop", i)
 
 	// 近期采集过的不管
 	if _, ok := skip[shop.Id]; ok {

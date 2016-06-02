@@ -18,9 +18,19 @@ type UrlInfo struct {
 
 func hashImages() {
 	var n int64
+	closeTicker := make(chan bool)
+	defer func() {
+		close(closeTicker)
+	}()
+	ticker := time.NewTicker(time.Second * 5)
 	go func() {
-		for range time.NewTicker(time.Second * 5).C {
-			pt("%d\n", atomic.LoadInt64(&n))
+		for {
+			select {
+			case <-ticker.C:
+				pt("%d\n", atomic.LoadInt64(&n))
+			case <-closeTicker:
+				return
+			}
 		}
 	}()
 
@@ -28,7 +38,6 @@ func hashImages() {
 	failCountLock := new(sync.Mutex)
 
 	for {
-		pt("%v\n", failCount)
 		t0 := time.Now()
 		var infos []*UrlInfo
 		err := db.Select(&infos, `SELECT url, h.url_id

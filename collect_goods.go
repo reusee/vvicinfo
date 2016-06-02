@@ -12,13 +12,23 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+var zeroImagesIds = make(map[int64]int)
+var zeroImagesIdsLock = new(sync.Mutex)
+
 func collectGoods() {
 	var total uint64
 do:
 	pt("select good ids to fetch images\n")
-	var ids []int64
+	var ids, filtered []int64
 	err := db.Select(&ids, `SELECT good_id FROM images_not_collected`)
 	ce(err, "select ids")
+	for _, id := range ids {
+		if zeroImagesIds[id] > 5 {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+	ids = filtered
 	if len(ids) == 0 {
 		return
 	}
@@ -131,6 +141,10 @@ get:
 				id,
 			)
 			ce(err, "update goods.images_collected")
+		} else {
+			zeroImagesIdsLock.Lock()
+			zeroImagesIds[id]++
+			zeroImagesIdsLock.Unlock()
 		}
 		return
 	}), "tx")
