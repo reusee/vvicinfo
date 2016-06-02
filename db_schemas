@@ -1,0 +1,395 @@
+--
+-- PostgreSQL database dump
+--
+
+-- Dumped from database version 9.5.2
+-- Dumped by pg_dump version 9.5.2
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
+--
+
+CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
+
+
+--
+-- Name: EXTENSION plpgsql; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
+
+
+SET search_path = public, pg_catalog;
+
+SET default_tablespace = '';
+
+SET default_with_oids = false;
+
+--
+-- Name: candidates; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE candidates (
+    candidate_id integer NOT NULL,
+    good_id integer NOT NULL,
+    price numeric(10,2),
+    category_id integer,
+    sizes text[],
+    detail_images text[],
+    colors text[],
+    cover_images text[],
+    texts text,
+    prepend_image_ids integer[],
+    lala_item_id integer,
+    status text
+);
+
+
+ALTER TABLE candidates OWNER TO reus;
+
+--
+-- Name: candidates_candidate_id_seq; Type: SEQUENCE; Schema: public; Owner: reus
+--
+
+CREATE SEQUENCE candidates_candidate_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE candidates_candidate_id_seq OWNER TO reus;
+
+--
+-- Name: candidates_candidate_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: reus
+--
+
+ALTER SEQUENCE candidates_candidate_id_seq OWNED BY candidates.candidate_id;
+
+
+--
+-- Name: goods; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE goods (
+    good_id bigint NOT NULL,
+    price numeric(10,2) NOT NULL,
+    shop_id integer NOT NULL,
+    added_at text,
+    category integer NOT NULL,
+    score double precision,
+    sort_score double precision,
+    title text,
+    status smallint NOT NULL,
+    internal_id text,
+    sizes text,
+    colors text,
+    images_collected boolean DEFAULT false
+);
+
+
+ALTER TABLE goods OWNER TO reus;
+
+--
+-- Name: images; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE images (
+    good_id bigint,
+    url_id integer NOT NULL,
+    image_id integer NOT NULL
+);
+
+
+ALTER TABLE images OWNER TO reus;
+
+--
+-- Name: images_image_id_seq; Type: SEQUENCE; Schema: public; Owner: reus
+--
+
+CREATE SEQUENCE images_image_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE images_image_id_seq OWNER TO reus;
+
+--
+-- Name: images_image_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: reus
+--
+
+ALTER SEQUENCE images_image_id_seq OWNED BY images.image_id;
+
+
+--
+-- Name: images_not_collected; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE images_not_collected (
+    good_id bigint NOT NULL
+);
+
+
+ALTER TABLE images_not_collected OWNER TO reus;
+
+--
+-- Name: jeans_candidates; Type: VIEW; Schema: public; Owner: reus
+--
+
+CREATE VIEW jeans_candidates AS
+ SELECT DISTINCT ON (goods.internal_id) goods.good_id,
+    goods.shop_id
+   FROM goods
+  WHERE ((goods.status > 0) AND (goods.title ~~ '%牛仔%'::text) AND (goods.added_at >= '2016-03-01'::text) AND (goods.internal_id IS NOT NULL))
+  ORDER BY goods.internal_id, goods.good_id DESC;
+
+
+ALTER TABLE jeans_candidates OWNER TO reus;
+
+--
+-- Name: not_hashed; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE not_hashed (
+    url_id integer NOT NULL
+);
+
+
+ALTER TABLE not_hashed OWNER TO reus;
+
+--
+-- Name: shops; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE shops (
+    shop_id integer NOT NULL,
+    name text,
+    last_update_time integer
+);
+
+
+ALTER TABLE shops OWNER TO reus;
+
+--
+-- Name: urls; Type: TABLE; Schema: public; Owner: reus
+--
+
+CREATE TABLE urls (
+    url_id integer NOT NULL,
+    url text NOT NULL,
+    sha512_16k bytea
+);
+
+
+ALTER TABLE urls OWNER TO reus;
+
+--
+-- Name: urls_url_id_seq; Type: SEQUENCE; Schema: public; Owner: reus
+--
+
+CREATE SEQUENCE urls_url_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE urls_url_id_seq OWNER TO reus;
+
+--
+-- Name: urls_url_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: reus
+--
+
+ALTER SEQUENCE urls_url_id_seq OWNED BY urls.url_id;
+
+
+--
+-- Name: candidate_id; Type: DEFAULT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY candidates ALTER COLUMN candidate_id SET DEFAULT nextval('candidates_candidate_id_seq'::regclass);
+
+
+--
+-- Name: image_id; Type: DEFAULT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY images ALTER COLUMN image_id SET DEFAULT nextval('images_image_id_seq'::regclass);
+
+
+--
+-- Name: url_id; Type: DEFAULT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY urls ALTER COLUMN url_id SET DEFAULT nextval('urls_url_id_seq'::regclass);
+
+
+--
+-- Name: candidates_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY candidates
+    ADD CONSTRAINT candidates_pkey PRIMARY KEY (candidate_id);
+
+
+--
+-- Name: goods_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY goods
+    ADD CONSTRAINT goods_pkey PRIMARY KEY (good_id);
+
+
+--
+-- Name: images_not_collected_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY images_not_collected
+    ADD CONSTRAINT images_not_collected_pkey PRIMARY KEY (good_id);
+
+
+--
+-- Name: images_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY images
+    ADD CONSTRAINT images_pkey PRIMARY KEY (image_id);
+
+
+--
+-- Name: not_hashed_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY not_hashed
+    ADD CONSTRAINT not_hashed_pkey PRIMARY KEY (url_id);
+
+
+--
+-- Name: shops_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY shops
+    ADD CONSTRAINT shops_pkey PRIMARY KEY (shop_id);
+
+
+--
+-- Name: urls_pkey; Type: CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY urls
+    ADD CONSTRAINT urls_pkey PRIMARY KEY (url_id);
+
+
+--
+-- Name: added_at; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX added_at ON goods USING btree (added_at);
+
+
+--
+-- Name: category; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX category ON goods USING btree (category);
+
+
+--
+-- Name: good_id; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE UNIQUE INDEX good_id ON candidates USING btree (good_id);
+
+
+--
+-- Name: good_image; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE UNIQUE INDEX good_image ON images USING btree (good_id, url_id);
+
+
+--
+-- Name: goods_without_detail; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX goods_without_detail ON goods USING btree (sizes) WHERE (sizes IS NULL);
+
+
+--
+-- Name: sha512_16k; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX sha512_16k ON urls USING btree (sha512_16k);
+
+
+--
+-- Name: shop_id; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX shop_id ON goods USING btree (shop_id);
+
+
+--
+-- Name: status; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX status ON goods USING btree (status);
+
+
+--
+-- Name: url; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE UNIQUE INDEX url ON urls USING btree (url);
+
+
+--
+-- Name: url_id; Type: INDEX; Schema: public; Owner: reus
+--
+
+CREATE INDEX url_id ON images USING btree (url_id);
+
+
+--
+-- Name: good_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY images
+    ADD CONSTRAINT good_id_fk FOREIGN KEY (good_id) REFERENCES goods(good_id);
+
+
+--
+-- Name: shop_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: reus
+--
+
+ALTER TABLE ONLY goods
+    ADD CONSTRAINT shop_id_fk FOREIGN KEY (shop_id) REFERENCES shops(shop_id);
+
+
+--
+-- Name: public; Type: ACL; Schema: -; Owner: postgres
+--
+
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM postgres;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO PUBLIC;
+
+
+--
+-- PostgreSQL database dump complete
+--
+
