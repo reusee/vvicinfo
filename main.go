@@ -101,7 +101,6 @@ func collectShops() {
 
 	skip := make(map[int]bool)
 	var ids []int
-	//ts := time.Now().Add(-time.Hour * 16).Unix()
 	ts := time.Now().Add(-time.Hour * 8).Unix()
 	err := db.Select(&ids, `SELECT shop_id
 		FROM shops 
@@ -145,12 +144,15 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 	}
 
 	db.MustExec(`INSERT INTO shops (
-				shop_id,
-				name
-			) VALUES ($1, $2)
-			ON CONFLICT (shop_id) DO UPDATE SET name = $2`,
+				shop_id, name, market_name, floor, position
+			) VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (shop_id) DO UPDATE SET 
+				name = $2, market_name = $3, floor = $4, position = $5`,
 		shop.Id,
 		shop.Name,
+		shop.MarketName,
+		shop.Floor,
+		shop.Position,
 	)
 
 	// set existing goods' status to 0

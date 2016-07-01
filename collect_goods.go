@@ -83,6 +83,7 @@ get:
 			Status int    // 上下架状态
 			Size   string // 尺码
 			Color  string // 颜色
+			Is_tx  int
 		}
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
@@ -119,12 +120,13 @@ get:
 			nImages++
 		})
 		_, err = tx.Exec(`UPDATE goods 
-			SET status = $1, sizes = $2, colors = $3
+			SET status = $1, sizes = $2, colors = $3, tuixian = $5
 			WHERE good_id = $4`,
 			data.Data.Status,
 			data.Data.Size,
 			data.Data.Color,
 			id,
+			data.Data.Is_tx,
 		)
 		ce(err, "update status")
 		if nImages > 0 {
