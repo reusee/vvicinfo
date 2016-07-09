@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
@@ -37,7 +39,7 @@ type ShopInfo struct {
 	Ww_nickname   string // 旺旺号
 	Wechat        string
 	Contacts_name string
-	Telephone     []string
+	//Telephone     []string // may be string
 	MarketName    string // 市场
 	Name          string // 档口名
 	Id            int
@@ -62,6 +64,12 @@ type Url struct {
 }
 
 func main() {
+	//collectShop(nil, 0, ShopInfo{
+	//	Id: 14885,
+	//})
+
+	//return //TODO
+
 	if len(os.Args) > 2 {
 		collectShops()
 		collectGoods()
@@ -90,7 +98,10 @@ func collectShops() {
 				RecordList  []ShopInfo
 			}
 		}
-		ce(decodeFromUrl(pageUrl, &data), "decode")
+		body, err := getBody(pageUrl)
+		ce(err, "get body %s\n", pageUrl)
+		ce(json.NewDecoder(bytes.NewReader(body)).Decode(&data), "decode \n %s\n", body)
+		//ce(decodeFromUrl(pageUrl, &data), "decode")
 		if len(data.Data.RecordList) == 0 {
 			break
 		}
@@ -136,7 +147,6 @@ func collectShops() {
 
 func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 	defer ct(&err)
-	pt("%20s %d\n", "shop", i)
 
 	// 近期采集过的不管
 	if _, ok := skip[shop.Id]; ok {
@@ -162,6 +172,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 		shop.Id)
 
 	// collect in sale goods
+	itemCount := 0
 	maxPage := 9999
 	page := 1
 	for {
@@ -285,6 +296,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 			}
 			return
 		}), "tx")
+		itemCount += len(data.Data.RecordList)
 		page++
 	}
 
@@ -293,6 +305,8 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 		WHERE shop_id = $2`,
 		time.Now().Unix(),
 		shop.Id)
+
+	pt("No.%d shop %d %d items\n", i, shop.Id, itemCount)
 
 	return
 }
