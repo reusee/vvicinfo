@@ -64,20 +64,22 @@ type Url struct {
 }
 
 func main() {
-	//collectShop(nil, 0, ShopInfo{
-	//	Id: 14885,
-	//})
-
-	//return //TODO
-
 	if len(os.Args) > 2 {
-		collectShops()
-		collectGoods()
-		hashImages()
+		switch os.Args[2] {
+		case "shops":
+			collectShops()
+		case "goods":
+			collectGoods()
+		case "hash":
+			hashImages()
+		case "classify":
+			classifyGoods()
+		}
 	} else {
-		hashImages()
 		collectShops()
 		collectGoods()
+		hashImages()
+		classifyGoods()
 	}
 }
 
@@ -189,7 +191,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 				//RecordCount int // 总商品数
 				RecordList []struct {
 					Discount_price interface{} // 拿货价
-					//Tid            string  // ??
+					Tid            string      // 淘宝id
 					//Is_shop_auth   int     // ?
 					//Price          float64 // 原价
 					Id     string
@@ -261,15 +263,17 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					sort_score,
 					title,
 					status,
-					internal_id
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
+					internal_id,
+					taobao_id
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10)
 					ON CONFLICT (good_id) DO UPDATE SET
 					price = $2,
 					score = $6,
 					sort_score = $7,
 					title = $8,
 					status = 1,
-					internal_id = $9
+					internal_id = $9,
+					taobao_id = $10
 					RETURNING images_collected
 				`,
 					item.Id,
@@ -281,6 +285,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 					item.Sort_score,
 					item.Title,
 					item.Art_no,
+					item.Tid,
 				).Scan(&imagesCollected)
 				ce(err, "insert goods")
 				if !imagesCollected { // insert into images_not_collected
