@@ -74,6 +74,8 @@ func main() {
 			hashImages()
 		case "classify":
 			classifyGoods()
+		case "foo":
+			foo()
 		}
 	} else {
 		collectShops()

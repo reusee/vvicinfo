@@ -1,42 +1,52 @@
 package main
 
 import (
-	"math"
 	"time"
 )
 
 func classifyGoods() {
+	defer time.Sleep(time.Second)
+
+	type GroupId int
+	type Hash string
+	type GoodId int64
+
 	// load existing group infos
 	type GroupInfo struct {
-		GroupId int         `db:"group_id"`
+		GroupId GroupId     `db:"group_id"`
 		Hashes  StringArray `db:"hashes"`
+		Title   string      `db:"title"`
 	}
 	var groupRows []GroupInfo
 	ce(db.Select(&groupRows, `SELECT * FROM groups`), "select group infos")
-	groups := make(map[int]GroupInfo)
-	hashGroups := make(map[string]map[int]struct{})
+	groupIdToHashSet := make(map[GroupId]map[Hash]bool)
+	hashToGroupIdSet := make(map[Hash]map[GroupId]bool)
 	for _, info := range groupRows {
-		groups[info.GroupId] = info
 		for _, hash := range info.Hashes {
-			if _, ok := hashGroups[hash]; !ok {
-				hashGroups[hash] = make(map[int]struct{})
+			hash := Hash(hash)
+			if _, ok := groupIdToHashSet[info.GroupId]; !ok {
+				groupIdToHashSet[info.GroupId] = make(map[Hash]bool)
 			}
-			hashGroups[hash][info.GroupId] = struct{}{}
+			groupIdToHashSet[info.GroupId][hash] = true
+			if _, ok := hashToGroupIdSet[hash]; !ok {
+				hashToGroupIdSet[hash] = make(map[GroupId]bool)
+			}
+			hashToGroupIdSet[hash][info.GroupId] = true
 		}
 	}
 	pt("group infos loaded\n")
 
 select_goods:
+	tx := db.MustBegin()
+
 	var goodIds Int64Array
-	err := db.Select(&goodIds, `SELECT good_id 
-		FROM goods
-		WHERE title LIKE $1
-		AND added_at >= $2
-		AND status > 0
-		AND group_id IS NULL
-		LIMIT 128
-		`,
-		"%牛仔%",
+	err := tx.Select(&goodIds, `SELECT good_id
+			FROM goods
+			WHERE added_at >= $1
+			AND status > 0
+			AND group_id IS NULL
+			LIMIT 256
+			`,
 		time.Now().Add(-time.Hour*24*45).Format("2006-01-02"),
 	)
 	ce(err, "select goods")
@@ -45,80 +55,110 @@ select_goods:
 		return
 	}
 
-	goodHashes := make(map[int64][]string)
-	hashGoods := make(map[string][]int64)
+	//XXX debug
+	//var err error
+	//goodIds := Int64Array{
+	//	2398924,
+	//}
+
 	var infos []struct {
-		GoodId int64  `db:"good_id"`
+		GoodId GoodId `db:"good_id"`
 		Hash   string `db:"hash"`
 	}
-	err = db.Select(&infos, `SELECT g.good_id, encode(sha512_16k, 'hex') AS hash
-		FROM goods g
-		LEFT JOIN images i ON g.good_id = i.good_id
+	err = tx.Select(&infos, `SELECT i.good_id, encode(sha512_16k, 'hex') AS hash
+		FROM images i 
 		LEFT JOIN urls u ON u.url_id = i.url_id
-		WHERE g.good_id = ANY($1)
+		WHERE i.good_id = ANY($1)
 		`,
 		goodIds,
 	)
 	ce(err, "select hashes")
+	goodIdToHashSet := make(map[GoodId]map[Hash]bool)
 	for _, info := range infos {
-		goodHashes[info.GoodId] = append(goodHashes[info.GoodId], info.Hash)
-		hashGoods[info.Hash] = append(hashGoods[info.Hash], info.GoodId)
+		if _, ok := goodIdToHashSet[info.GoodId]; !ok {
+			goodIdToHashSet[info.GoodId] = make(map[Hash]bool)
+		}
+		goodIdToHashSet[info.GoodId][Hash(info.Hash)] = true
 	}
 	pt("select %d rows of infos\n", len(infos))
 
 loop_goods:
 	for _, goodId := range goodIds {
-		for _, hash := range goodHashes[goodId] {
-			if groupSet, ok := hashGroups[hash]; ok {
-				for groupId := range groupSet {
-					// 判断是否同一组，是的就加入该组
-					count := 0
-					for _, hash := range groups[groupId].Hashes {
-						for _, goodHash := range goodHashes[goodId] {
-							if hash == goodHash {
-								count++
-							}
-						}
-					}
-					if math.Abs(float64(len(groups[groupId].Hashes)-count)) <= 3 {
-						//same group
-						_, err := db.Exec(`UPDATE goods 
-							SET group_id = $1
-							WHERE good_id = $2
-							`,
-							groupId,
-							goodId,
-						)
-						ce(err, "update goods")
-						continue loop_goods
-					}
+		goodId := GoodId(goodId)
+		candidateGroupIdSet := make(map[GroupId]bool)
+		for hash := range goodIdToHashSet[goodId] {
+			if groupIdSet, ok := hashToGroupIdSet[hash]; ok {
+				for groupId := range groupIdSet {
+					candidateGroupIdSet[groupId] = true
 				}
 			}
 		}
 
+		for groupId := range candidateGroupIdSet {
+			count := 0
+			total := 0
+			for hash := range groupIdToHashSet[groupId] {
+				if _, ok := goodIdToHashSet[goodId][hash]; ok {
+					count++
+				}
+				total++
+			}
+			if total-count <= 3 && count > 5 {
+				var similarity float64
+				ce(tx.Get(&similarity, `SELECT similarity(
+					(SELECT title FROM groups WHERE group_id = $1),
+					(SELECT title FROM goods WHERE good_id = $2)
+				)`,
+					groupId,
+					goodId,
+				), "get similarity")
+				if similarity < 0.3 && count < 15 {
+					// 有15个图相同的话，就不管标题了
+					// 如果发现有商品的小图用量大于15,那就提高
+					continue
+				}
+				//same group
+				_, err := tx.Exec(`UPDATE goods 
+							SET group_id = $1
+							WHERE good_id = $2
+							`,
+					groupId,
+					goodId,
+				)
+				ce(err, "update goods")
+				continue loop_goods
+			}
+		}
+
 		// new group or ignore
-		if len(goodHashes[goodId]) > 5 {
+		if len(goodIdToHashSet[goodId]) > 5 {
 			// new group
-			row := db.QueryRow(`INSERT INTO groups
-								(hashes) VALUES ($1)
-								RETURNING group_id
-								`,
-				StringArray(goodHashes[goodId]),
+			var groupHashes StringArray
+			for hash := range goodIdToHashSet[goodId] {
+				groupHashes = append(groupHashes, string(hash))
+			}
+			row := tx.QueryRow(`INSERT INTO groups
+				(hashes, title) 
+				VALUES ($1, (SELECT title FROM goods WHERE good_id = $2))
+				RETURNING group_id
+				`,
+				groupHashes,
+				goodId,
 			)
 			ce(err, "insert new group")
-			var newGroupId int
+			var newGroupId GroupId
 			ce(row.Scan(&newGroupId), "scan")
-			groups[newGroupId] = GroupInfo{
-				GroupId: newGroupId,
-				Hashes:  StringArray(goodHashes[goodId]),
-			}
-			for _, hash := range goodHashes[goodId] {
-				if _, ok := hashGroups[hash]; !ok {
-					hashGroups[hash] = make(map[int]struct{})
+			for hash := range goodIdToHashSet[goodId] {
+				if _, ok := groupIdToHashSet[newGroupId]; !ok {
+					groupIdToHashSet[newGroupId] = make(map[Hash]bool)
 				}
-				hashGroups[hash][newGroupId] = struct{}{}
+				groupIdToHashSet[newGroupId][hash] = true
+				if _, ok := hashToGroupIdSet[hash]; !ok {
+					hashToGroupIdSet[hash] = make(map[GroupId]bool)
+				}
+				hashToGroupIdSet[hash][newGroupId] = true
 			}
-			_, err := db.Exec(`UPDATE goods
+			_, err := tx.Exec(`UPDATE goods
 				SET group_id = $1
 				WHERE good_id = $2
 				`,
@@ -128,7 +168,7 @@ loop_goods:
 			ce(err, "update goods")
 		} else {
 			// ignore this item
-			_, err := db.Exec(`UPDATE goods
+			_, err := tx.Exec(`UPDATE goods
 								SET group_id = 0
 								WHERE good_id = $1
 								`,
@@ -139,7 +179,8 @@ loop_goods:
 
 	}
 
+	ce(tx.Commit(), "commit")
+
 	goto select_goods
 
-	time.Sleep(time.Second)
 }
