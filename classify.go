@@ -19,19 +19,19 @@ func classifyGoods() {
 	}
 	var groupRows []GroupInfo
 	ce(db.Select(&groupRows, `SELECT * FROM groups`), "select group infos")
-	groupIdToHashSet := make(map[GroupId]map[Hash]bool)
-	hashToGroupIdSet := make(map[Hash]map[GroupId]bool)
+	groupIdToHashSet := make(map[GroupId]map[Hash]struct{})
+	hashToGroupIdSet := make(map[Hash]map[GroupId]struct{})
 	for _, info := range groupRows {
 		for _, hash := range info.Hashes {
 			hash := Hash(hash)
 			if _, ok := groupIdToHashSet[info.GroupId]; !ok {
-				groupIdToHashSet[info.GroupId] = make(map[Hash]bool)
+				groupIdToHashSet[info.GroupId] = make(map[Hash]struct{})
 			}
-			groupIdToHashSet[info.GroupId][hash] = true
+			groupIdToHashSet[info.GroupId][hash] = struct{}{}
 			if _, ok := hashToGroupIdSet[hash]; !ok {
-				hashToGroupIdSet[hash] = make(map[GroupId]bool)
+				hashToGroupIdSet[hash] = make(map[GroupId]struct{})
 			}
-			hashToGroupIdSet[hash][info.GroupId] = true
+			hashToGroupIdSet[hash][info.GroupId] = struct{}{}
 		}
 	}
 	pt("group infos loaded\n")
@@ -73,23 +73,23 @@ select_goods:
 		goodIds,
 	)
 	ce(err, "select hashes")
-	goodIdToHashSet := make(map[GoodId]map[Hash]bool)
+	goodIdToHashSet := make(map[GoodId]map[Hash]struct{})
 	for _, info := range infos {
 		if _, ok := goodIdToHashSet[info.GoodId]; !ok {
-			goodIdToHashSet[info.GoodId] = make(map[Hash]bool)
+			goodIdToHashSet[info.GoodId] = make(map[Hash]struct{})
 		}
-		goodIdToHashSet[info.GoodId][Hash(info.Hash)] = true
+		goodIdToHashSet[info.GoodId][Hash(info.Hash)] = struct{}{}
 	}
 	pt("select %d rows of infos\n", len(infos))
 
 loop_goods:
 	for _, goodId := range goodIds {
 		goodId := GoodId(goodId)
-		candidateGroupIdSet := make(map[GroupId]bool)
+		candidateGroupIdSet := make(map[GroupId]struct{})
 		for hash := range goodIdToHashSet[goodId] {
 			if groupIdSet, ok := hashToGroupIdSet[hash]; ok {
 				for groupId := range groupIdSet {
-					candidateGroupIdSet[groupId] = true
+					candidateGroupIdSet[groupId] = struct{}{}
 				}
 			}
 		}
@@ -150,13 +150,13 @@ loop_goods:
 			ce(row.Scan(&newGroupId), "scan")
 			for hash := range goodIdToHashSet[goodId] {
 				if _, ok := groupIdToHashSet[newGroupId]; !ok {
-					groupIdToHashSet[newGroupId] = make(map[Hash]bool)
+					groupIdToHashSet[newGroupId] = make(map[Hash]struct{})
 				}
-				groupIdToHashSet[newGroupId][hash] = true
+				groupIdToHashSet[newGroupId][hash] = struct{}{}
 				if _, ok := hashToGroupIdSet[hash]; !ok {
-					hashToGroupIdSet[hash] = make(map[GroupId]bool)
+					hashToGroupIdSet[hash] = make(map[GroupId]struct{})
 				}
-				hashToGroupIdSet[hash][newGroupId] = true
+				hashToGroupIdSet[hash][newGroupId] = struct{}{}
 			}
 			_, err := tx.Exec(`UPDATE goods
 				SET group_id = $1
