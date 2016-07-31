@@ -1,6 +1,8 @@
 package main
 
 import (
+	//"github.com/jmoiron/sqlx"
+	//_ "github.com/lib/pq"
 	"time"
 )
 
@@ -18,7 +20,9 @@ func classifyGoods() {
 		Title   string      `db:"title"`
 	}
 	var groupRows []GroupInfo
-	ce(db.Select(&groupRows, `SELECT * FROM groups`), "select group infos")
+	ce(db.Select(&groupRows, `SELECT 
+		group_id, hashes, title
+		FROM groups`), "select group infos")
 	groupIdToHashSet := make(map[GroupId]map[Hash]struct{})
 	hashToGroupIdSet := make(map[Hash]map[GroupId]struct{})
 	for _, info := range groupRows {
@@ -43,11 +47,12 @@ select_goods:
 	err := tx.Select(&goodIds, `SELECT good_id
 			FROM goods
 			WHERE added_at >= $1
-			AND status > 0
+			--AND status > 0
 			AND group_id IS NULL
+			ORDER BY good_id DESC
 			LIMIT 256
 			`,
-		time.Now().Add(-time.Hour*24*45).Format("2006-01-02"),
+		time.Now().Add(-time.Hour*24*120).Format("2006-01-02"),
 	)
 	ce(err, "select goods")
 	pt("select %d goods\n", len(goodIds))
@@ -61,6 +66,23 @@ select_goods:
 	//	2398924,
 	//}
 
+	//XXX from vvic db
+	//lalaDB, err := sqlx.Connect("postgres", "host=reus.mobi user=reus dbname=lala connect_timeout=60")
+	//ce(err, "connect to lala db")
+	//var goodIdsFromLala Int64Array
+	//ce(lalaDB.Select(&goodIdsFromLala, `SELECT vvic_id FROM items`), "select good ids from lala db")
+	//var goodIds Int64Array
+	//ce(db.Select(&goodIds, `SELECT good_id FROM goods
+	//	WHERE good_id = ANY($1)
+	//	AND group_id IS NULL
+	//	`,
+	//	goodIdsFromLala,
+	//), "select good ids")
+	//pt("%d good ids\n", len(goodIds))
+	//if len(goodIds) == 0 {
+	//	return
+	//}
+
 	var infos []struct {
 		GoodId GoodId `db:"good_id"`
 		Hash   string `db:"hash"`
@@ -69,6 +91,7 @@ select_goods:
 		FROM images i 
 		LEFT JOIN urls u ON u.url_id = i.url_id
 		WHERE i.good_id = ANY($1)
+		AND sha512_16k IS NOT NULL
 		`,
 		goodIds,
 	)
@@ -130,52 +153,40 @@ loop_goods:
 			}
 		}
 
-		// new group or ignore
-		if len(goodIdToHashSet[goodId]) > 5 {
-			// new group
-			var groupHashes StringArray
-			for hash := range goodIdToHashSet[goodId] {
-				groupHashes = append(groupHashes, string(hash))
-			}
-			row := tx.QueryRow(`INSERT INTO groups
+		// new group
+		var groupHashes StringArray
+		for hash := range goodIdToHashSet[goodId] {
+			groupHashes = append(groupHashes, string(hash))
+		}
+		row := tx.QueryRow(`INSERT INTO groups
 				(hashes, title) 
 				VALUES ($1, (SELECT title FROM goods WHERE good_id = $2))
 				RETURNING group_id
 				`,
-				groupHashes,
-				goodId,
-			)
-			ce(err, "insert new group")
-			var newGroupId GroupId
-			ce(row.Scan(&newGroupId), "scan")
-			for hash := range goodIdToHashSet[goodId] {
-				if _, ok := groupIdToHashSet[newGroupId]; !ok {
-					groupIdToHashSet[newGroupId] = make(map[Hash]struct{})
-				}
-				groupIdToHashSet[newGroupId][hash] = struct{}{}
-				if _, ok := hashToGroupIdSet[hash]; !ok {
-					hashToGroupIdSet[hash] = make(map[GroupId]struct{})
-				}
-				hashToGroupIdSet[hash][newGroupId] = struct{}{}
+			groupHashes,
+			goodId,
+		)
+		ce(err, "insert new group")
+		var newGroupId GroupId
+		ce(row.Scan(&newGroupId), "scan")
+		for hash := range goodIdToHashSet[goodId] {
+			if _, ok := groupIdToHashSet[newGroupId]; !ok {
+				groupIdToHashSet[newGroupId] = make(map[Hash]struct{})
 			}
-			_, err := tx.Exec(`UPDATE goods
+			groupIdToHashSet[newGroupId][hash] = struct{}{}
+			if _, ok := hashToGroupIdSet[hash]; !ok {
+				hashToGroupIdSet[hash] = make(map[GroupId]struct{})
+			}
+			hashToGroupIdSet[hash][newGroupId] = struct{}{}
+		}
+		_, err := tx.Exec(`UPDATE goods
 				SET group_id = $1
 				WHERE good_id = $2
 				`,
-				newGroupId,
-				goodId,
-			)
-			ce(err, "update goods")
-		} else {
-			// ignore this item
-			_, err := tx.Exec(`UPDATE goods
-								SET group_id = 0
-								WHERE good_id = $1
-								`,
-				goodId,
-			)
-			ce(err, "update goods")
-		}
+			newGroupId,
+			goodId,
+		)
+		ce(err, "update goods")
 
 	}
 
