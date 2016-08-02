@@ -11,7 +11,7 @@ func init() {
 	var err error
 	db, err = sqlx.Connect("postgres", "user=reus dbname=vvic sslmode=disable")
 	ce(err, "connect to db")
-	initSchemas()
+	//initSchemas()
 }
 
 func initSchemas() {
