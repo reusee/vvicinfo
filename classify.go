@@ -87,7 +87,7 @@ select_goods:
 		GoodId GoodId `db:"good_id"`
 		Hash   string `db:"hash"`
 	}
-	err = tx.Select(&infos, `SELECT i.good_id, encode(sha512_16k, 'hex') AS hash
+	err = tx.Select(&infos, `SELECT i.good_id, encode(sha512_16k, 'base64') AS hash
 		FROM images i 
 		LEFT JOIN urls u ON u.url_id = i.url_id
 		WHERE i.good_id = ANY($1)
