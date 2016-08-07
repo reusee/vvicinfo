@@ -60,10 +60,9 @@ select_goods:
 		return
 	}
 
-	//XXX debug
+	//XXX manually
 	//var err error
 	//goodIds := Int64Array{
-	//	2398924,
 	//}
 
 	//XXX from vvic db
@@ -135,9 +134,9 @@ loop_goods:
 					groupId,
 					goodId,
 				), "get similarity")
-				if similarity < 0.3 && count < 15 {
-					// 有15个图相同的话，就不管标题了
-					// 如果发现有商品的小图用量大于15,那就提高
+				if similarity < 0.3 && count < 10 {
+					// 有10个图相同的话，就不管标题了
+					// 如果发现有商品的小图用量大于10,那就提高
 					continue
 				}
 				//same group

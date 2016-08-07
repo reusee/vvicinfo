@@ -74,6 +74,8 @@ func main() {
 			hashImages()
 		case "classify":
 			classifyGoods()
+		case "fixgroup":
+			groupByInternalId()
 		case "foo":
 			foo()
 		}
@@ -82,6 +84,7 @@ func main() {
 		collectGoods()
 		hashImages()
 		classifyGoods()
+		groupByInternalId()
 	}
 }
 
