@@ -1,7 +1,12 @@
 package main
 
 func groupByInternalId() {
-	rows, err := db.Query(`SELECT
+	tx := db.MustBegin()
+	defer func() {
+		ce(tx.Commit(), "commit")
+	}()
+
+	rows, err := tx.Query(`SELECT
 		good_id, group_id, shop_id, internal_id
 		FROM goods
 		WHERE internal_id IS NOT NULL
@@ -19,11 +24,6 @@ func groupByInternalId() {
 		GoodId  GoodId
 	}
 	m := make(map[ShopId]map[string]Info)
-
-	tx := db.MustBegin()
-	defer func() {
-		ce(tx.Commit(), "commit")
-	}()
 
 	for rows.Next() {
 		var goodId GoodId
@@ -45,7 +45,7 @@ func groupByInternalId() {
 					WHERE good_id = $2
 					`,
 					info.GroupId,
-					info.GoodId,
+					goodId,
 				)
 				ce(err, "update goods")
 			}

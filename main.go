@@ -40,6 +40,7 @@ type ShopInfo struct {
 	Wechat        string
 	Contacts_name string
 	//Telephone     []string // may be string
+	Telephone     json.RawMessage
 	MarketName    string // 市场
 	Name          string // 档口名
 	Id            int
@@ -72,20 +73,25 @@ func main() {
 			collectGoods()
 		case "hash":
 			hashImages()
-		case "classify":
-			classifyGoods()
 		case "fixgroup":
 			groupByInternalId()
 		case "foo":
 			foo()
+		case "rank":
+			collectRankings()
+		case "unique":
+			markUniqueGoods()
 		}
 	} else {
 		collectShops()
 		collectGoods()
 		hashImages()
-		classifyGoods()
-		groupByInternalId()
+		groupGoods()
+		collectRankings()
+		markUniqueGoods()
 	}
+
+	time.Sleep(time.Second)
 }
 
 func collectShops() {
@@ -161,15 +167,17 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 	}
 
 	db.MustExec(`INSERT INTO shops (
-				shop_id, name, market_name, floor, position
-			) VALUES ($1, $2, $3, $4, $5)
+				shop_id, name, market_name, floor, position, qq, tel
+			) VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (shop_id) DO UPDATE SET 
-				name = $2, market_name = $3, floor = $4, position = $5`,
+				name = $2, market_name = $3, floor = $4, position = $5, qq = $6, tel = $7`,
 		shop.Id,
 		shop.Name,
 		shop.MarketName,
 		shop.Floor,
 		shop.Position,
+		shop.Qq,
+		string(shop.Telephone),
 	)
 
 	// set existing goods' status to 0
