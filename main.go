@@ -73,6 +73,8 @@ func main() {
 			collectGoods()
 		case "hash":
 			hashImages()
+		case "group":
+			groupGoods()
 		case "fixgroup":
 			groupByInternalId()
 		case "foo":
