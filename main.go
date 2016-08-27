@@ -83,6 +83,8 @@ func main() {
 			collectRankings()
 		case "unique":
 			markUniqueGoods()
+		case "size":
+			collectImageSize()
 		}
 	} else {
 		collectShops()
