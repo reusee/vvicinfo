@@ -104,7 +104,7 @@ check:
 		}
 	}
 	if has {
-		mark(goodId)
+		//mark(goodId)
 	} else {
 		_, err := tx.Exec(`UPDATE goods
 				SET group_id = -1
