@@ -102,6 +102,8 @@ get:
 	}
 	defer resp.Body.Close()
 
+	contentLen := resp.Header.Get("Content-Length")
+
 	h := sha512.New()
 	_, err = io.CopyN(h, resp.Body, 16384)
 	if err == io.EOF {
@@ -117,10 +119,12 @@ get:
 
 	sum := h.Sum(nil)
 	_, err = tx.Exec(`UPDATE urls 
-		SET sha512_16k = $1
+		SET sha512_16k = $1, length = $3
 		WHERE url_id = $2`,
 		sum,
-		info.UrlId)
+		info.UrlId,
+		contentLen,
+	)
 	ce(err, "update hash")
 	_, err = tx.Exec(`DELETE FROM not_hashed
 		WHERE url_id = $1

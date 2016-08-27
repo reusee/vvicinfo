@@ -2,11 +2,13 @@ package main
 
 import (
 	"github.com/lib/pq"
+	"math"
 )
 
 func groupGoods() {
 	// load image and urls infos
 	hashToUrlIds := make(map[string][]int64)
+	//TODO 应该去掉小图片的，不过图片大小没有采集
 	rows, err := db.Query(`SELECT url_id, encode(sha512_16k, 'base64') FROM urls
 		WHERE sha512_16k IS NOT NULL
 		--ORDER BY url_id DESC
@@ -92,7 +94,7 @@ check:
 	}
 	has := false
 	for rightId, hashSet := range matches {
-		if len(hashSet) >= 10 {
+		if len(hashSet) >= 10 && math.Abs(float64(len(hashes)-len(hashSet))) < 5 {
 			pt("%d %d %d %d\n", goodId, len(hashes), rightId, len(hashSet))
 			// 不到的话就算了吧
 			has = true
