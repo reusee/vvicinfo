@@ -10,7 +10,7 @@ func groupByInternalId() {
 		good_id, group_id, shop_id, internal_id
 		FROM goods
 		WHERE internal_id IS NOT NULL
-		AND group_id IS NOT NULL
+		AND group_id > 0
 		ORDER BY good_id DESC
 		`,
 	)
