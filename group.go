@@ -1,13 +1,11 @@
 package main
 
-import (
-	"github.com/lib/pq"
-)
+type Hash [64]byte
 
 func groupGoods() {
 	// load image and urls infos
-	hashToUrlIds := make(map[string][]int64)
-	rows, err := db.Query(`SELECT url_id, encode(sha512_16k, 'base64') FROM urls
+	hashToUrlIds := make(map[Hash][]int64)
+	rows, err := db.Query(`SELECT url_id, sha512_16k FROM urls
 		WHERE sha512_16k IS NOT NULL
 		--ORDER BY url_id DESC
 		--LIMIT 50000 -- DEBUG
@@ -16,8 +14,10 @@ func groupGoods() {
 	n := 0
 	for rows.Next() {
 		var urlId int64
-		var hash string
-		ce(rows.Scan(&urlId, &hash), "scan")
+		var h []byte
+		ce(rows.Scan(&urlId, &h), "scan")
+		var hash Hash
+		copy(hash[:], h[:])
 		hashToUrlIds[hash] = append(hashToUrlIds[hash], urlId)
 		n++
 		if n%10000 == 0 {
@@ -62,9 +62,9 @@ check:
 		LIMIT 1`), "get good id")
 
 	// get good hashes
-	var hashes pq.StringArray
-	ce(tx.Select(&hashes, `SELECT
-		encode(sha512_16k, 'base64')
+	var hs [][]byte
+	ce(tx.Select(&hs, `SELECT
+		sha512_16k
 		FROM images i
 		LEFT JOIN urls USING(url_id)
 		WHERE
@@ -72,6 +72,12 @@ check:
 		`,
 		goodId,
 	), "select hashes")
+	var hashes []Hash
+	for _, h := range hs {
+		var hash Hash
+		copy(hash[:], h[:])
+		hashes = append(hashes, hash)
+	}
 
 	// stat
 	matches := make(map[int64]int)
