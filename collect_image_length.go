@@ -2,13 +2,15 @@ package main
 
 import (
 	"net/http"
-	"sync/atomic"
+	"strconv"
+	"time"
 )
 
 func collectImageLength() {
 	type Job struct {
-		UrlId int64  `db:"url_id"`
-		Url   string `db:"url"`
+		UrlId  int64  `db:"url_id"`
+		Url    string `db:"url"`
+		Length int
 	}
 	jobs := make(chan Job)
 
@@ -18,7 +20,7 @@ func collectImageLength() {
 				url_id, url
 				FROM urls
 				WHERE length IS NULL
-				LIMIT 1024
+				LIMIT 4096
 				`,
 			)
 			ce(err, "query")
@@ -31,7 +33,38 @@ func collectImageLength() {
 		}
 	}()
 
-	var count int64
+	results := make(chan Job, 4096)
+	go func() {
+		count := 0
+		tx := db.MustBegin()
+		commit := func() {
+			ce(tx.Commit(), "commit")
+			tx = db.MustBegin()
+		}
+		commitTicker := time.NewTicker(time.Second * 30)
+		for {
+			select {
+			case <-commitTicker.C:
+				commit()
+			case job := <-results:
+				_, err := tx.Exec(`UPDATE urls
+				SET length = $1
+				WHERE url_id = $2
+				`,
+					job.Length,
+					job.UrlId,
+				)
+				ce(err, "update urls")
+				count++
+				if count%100 == 0 {
+					pt("%d\n", count)
+					pt("%d %d\n", job.UrlId, job.Length)
+					commit()
+				}
+			}
+		}
+	}()
+
 	sem := make(chan struct{}, 64)
 	for job := range jobs {
 		job := job
@@ -45,18 +78,14 @@ func collectImageLength() {
 				return
 			}
 			length := resp.Header.Get("Content-Length")
-			_, err = db.Exec(`UPDATE urls
-			SET length = $1
-			WHERE url_id = $2
-			`,
-				length,
-				job.UrlId,
-			)
-			ce(err, "update urls")
-			n := atomic.AddInt64(&count, 1)
-			if n%100 == 0 {
-				pt("%d\n", n)
+			if length == "" {
+				return
 			}
+			l, err := strconv.Atoi(length)
+			ce(err, "parse length")
+			job.Length = l
+			results <- job
 		}()
 	}
+
 }

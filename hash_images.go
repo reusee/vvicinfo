@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-type UrlInfo struct {
-	Url        string
-	UrlId      int64 `db:"url_id"`
-	Sha512_16k []byte
+type ImageInfo struct {
+	ImageId    int64  `db:"image_id"`
+	Url        string `db:"url"`
+	Sha512_16k []byte `db:"sha512_16k"`
 }
 
 func hashImages() {
@@ -39,17 +39,17 @@ func hashImages() {
 
 	for {
 		t0 := time.Now()
-		var infos []*UrlInfo
-		err := db.Select(&infos, `SELECT url, h.url_id
+		var infos []*ImageInfo
+		err := db.Select(&infos, `SELECT image_id, url
 			FROM not_hashed h
-			LEFT JOIN urls u ON h.url_id = u.url_id
+			LEFT JOIN images i USING(image_id)
 			LIMIT 2048
 			`,
 		)
 		ce(err, "select")
-		var filtered []*UrlInfo
+		var filtered []*ImageInfo
 		for _, info := range infos {
-			if failCount[info.UrlId] > 3 {
+			if failCount[info.ImageId] > 3 {
 				continue
 			}
 			filtered = append(filtered, info)
@@ -76,7 +76,7 @@ func hashImages() {
 				if err != nil {
 					pt("%v\n", err)
 					failCountLock.Lock()
-					failCount[info.UrlId]++
+					failCount[info.ImageId]++
 					failCountLock.Unlock()
 				}
 			}()
@@ -88,7 +88,7 @@ func hashImages() {
 
 }
 
-func hashImage(info *UrlInfo, tx *sqlx.Tx) (err error) {
+func hashImage(info *ImageInfo, tx *sqlx.Tx) (err error) {
 	defer ct(&err)
 	retry := 10
 get:
@@ -103,6 +103,9 @@ get:
 	defer resp.Body.Close()
 
 	contentLen := resp.Header.Get("Content-Length")
+	if contentLen == "" {
+		contentLen = "0"
+	}
 
 	h := sha512.New()
 	_, err = io.CopyN(h, resp.Body, 16384)
@@ -118,18 +121,18 @@ get:
 	}
 
 	sum := h.Sum(nil)
-	_, err = tx.Exec(`UPDATE urls 
+	_, err = tx.Exec(`UPDATE images
 		SET sha512_16k = $1, length = $3
-		WHERE url_id = $2`,
+		WHERE image_id = $2`,
 		sum,
-		info.UrlId,
+		info.ImageId,
 		contentLen,
 	)
 	ce(err, "update hash")
 	_, err = tx.Exec(`DELETE FROM not_hashed
-		WHERE url_id = $1
+		WHERE image_id = $1
 		`,
-		info.UrlId,
+		info.ImageId,
 	)
 	ce(err, "delete from not_hashed")
 	return

@@ -153,34 +153,36 @@ get:
 	return
 }
 
-func saveGoodImage(tx *sqlx.Tx, good_id int64, url string) (err error) {
+func saveGoodImage(tx *sqlx.Tx, goodId int64, url string) (err error) {
 	defer ct(&err)
-	if url != "" {
-		res, err := tx.Exec(`INSERT INTO urls (url) VALUES ($1)
-			ON CONFLICT (url) DO NOTHING`,
-			url)
-		ce(err, "insert url")
-		n, err := res.RowsAffected()
-		ce(err, "get rows inserted")
-		if n > 0 {
-			_, err = tx.Exec(`INSERT INTO not_hashed (url_id)
-				SELECT url_id FROM urls WHERE url = $1
-				`,
-				url,
-			)
-			ce(err, "insert into not_hashed")
-		}
-		_, err = tx.Exec(`INSERT INTO images (
-					good_id,
-					url_id
-				) VALUES (
-					$1,
-					(SELECT url_id FROM urls WHERE url = $2)
-				)
-				ON CONFLICT (good_id, url_id) DO NOTHING`,
-			good_id,
-			url)
-		ce(err, "insert image")
+	if url == "" {
+		return
+	}
+	var imageId int64
+	err = tx.Get(&imageId, `INSERT INTO images (good_id, url)
+		VALUES ($1, $2)
+		ON CONFLICT (good_id, url) DO NOTHING
+		RETURNING image_id
+		`,
+		goodId,
+		url,
+	)
+	ce(err, "insert image")
+	var notHashed bool
+	ce(tx.Get(&notHashed, `SELECT
+		sha512_16k IS NULL
+		FROM images
+		WHERE image_id = $1
+		`,
+		imageId,
+	), "get hash state")
+	if notHashed {
+		_, err = tx.Exec(`INSERT INTO not_hashed (image_id)
+			VALUES ($1)
+			`,
+			imageId,
+		)
+		ce(err, "insert into not_hashed")
 	}
 	return
 }

@@ -19,7 +19,7 @@ func markUniqueGoods() {
 		is_unique = true
 		WHERE group_id = ANY(
 			SELECT group_id FROM (
-				SELECT COUNT(DISTINCT shop_id) AS n, 
+				SELECT COUNT(DISTINCT internal_id) AS n, 
 				group_id 
 				FROM goods 
 				GROUP BY group_id

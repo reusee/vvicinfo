@@ -6,6 +6,7 @@ import (
 )
 
 func groupGoods() {
+	panic("TODO")
 	// load image and urls infos
 	hashToUrlIds := make(map[string][]int64)
 	//TODO 应该去掉小图片的，不过图片大小没有采集
@@ -50,6 +51,7 @@ func groupGoods() {
 
 	txCount := 0
 	tx := db.MustBegin()
+	markedCount := 0
 
 check:
 
@@ -95,7 +97,7 @@ check:
 	has := false
 	for rightId, hashSet := range matches {
 		if len(hashSet) >= 10 && math.Abs(float64(len(hashes)-len(hashSet))) < 5 {
-			pt("%d %d %d %d\n", goodId, len(hashes), rightId, len(hashSet))
+			pt("%d %d %d %d - \n", goodId, len(hashes), rightId, len(hashSet), markedCount)
 			// 不到的话就算了吧
 			has = true
 			_, err := tx.Exec(`UPDATE goods
@@ -106,6 +108,7 @@ check:
 				rightId,
 			)
 			ce(err, "update goods")
+			markedCount++
 		}
 	}
 	if !has {
@@ -116,6 +119,7 @@ check:
 			goodId,
 		)
 		ce(err, "update goods")
+		markedCount++
 	}
 
 	txCount++
