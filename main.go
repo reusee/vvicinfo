@@ -55,8 +55,8 @@ func main() {
 			collectShops()
 		case "goods":
 			collectGoods()
-		case "hash":
-			hashImages()
+		case "images":
+			collectImageInfos()
 		case "group":
 			groupGoods()
 		case "fixgroup":
@@ -76,7 +76,7 @@ func main() {
 	} else {
 		collectShops()
 		collectGoods()
-		hashImages()
+		collectImageInfos()
 		groupGoods()
 		collectRankings()
 		markUniqueGoods()
