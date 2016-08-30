@@ -2,7 +2,7 @@ package main
 
 import (
 	"crypto/sha512"
-	"github.com/jmoiron/sqlx"
+	//"github.com/jmoiron/sqlx"
 	"io"
 	"net/http"
 	"sync"
@@ -11,7 +11,6 @@ import (
 )
 
 type ImageInfo struct {
-	ImageId    int64  `db:"image_id"`
 	Url        string `db:"url"`
 	Sha512_16k []byte `db:"sha512_16k"`
 }
@@ -34,22 +33,23 @@ func hashImages() {
 		}
 	}()
 
-	failCount := make(map[int64]int)
+	failCount := make(map[string]int)
 	failCountLock := new(sync.Mutex)
 
 	for {
 		t0 := time.Now()
 		var infos []*ImageInfo
-		err := db.Select(&infos, `SELECT image_id, url
-			FROM not_hashed h
-			LEFT JOIN images i USING(image_id)
+		err := db.Select(&infos, `SELECT url
+			FROM images 
+			JOIN image_vars USING(image_id)
+			WHERE hashed = false
 			LIMIT 2048
 			`,
 		)
 		ce(err, "select")
 		var filtered []*ImageInfo
 		for _, info := range infos {
-			if failCount[info.ImageId] > 3 {
+			if failCount[info.Url] > 3 {
 				continue
 			}
 			filtered = append(filtered, info)
@@ -59,7 +59,6 @@ func hashImages() {
 			break
 		}
 		pt("select %d infos\n", len(infos))
-		tx := db.MustBegin()
 		wg := new(sync.WaitGroup)
 		wg.Add(len(infos))
 		sem := make(chan bool, semSize)
@@ -72,23 +71,23 @@ func hashImages() {
 					wg.Done()
 					atomic.AddInt64(&n, 1)
 				}()
-				err := hashImage(info, tx)
+				err := hashImage(info)
 				if err != nil {
+					panic(err)
 					pt("%v\n", err)
 					failCountLock.Lock()
-					failCount[info.ImageId]++
+					failCount[info.Url]++
 					failCountLock.Unlock()
 				}
 			}()
 		}
 		wg.Wait()
-		tx.Commit()
 		pt("collect %d in %v\n", len(infos), time.Now().Sub(t0))
 	}
 
 }
 
-func hashImage(info *ImageInfo, tx *sqlx.Tx) (err error) {
+func hashImage(info *ImageInfo) (err error) {
 	defer ct(&err)
 	retry := 10
 get:
@@ -121,19 +120,25 @@ get:
 	}
 
 	sum := h.Sum(nil)
-	_, err = tx.Exec(`UPDATE images
+	var imageIds []int64
+	err = db.Select(&imageIds, `UPDATE images
 		SET sha512_16k = $1, length = $3
-		WHERE image_id = $2`,
+		WHERE url = $2
+		RETURNING image_id
+		`,
 		sum,
-		info.ImageId,
+		info.Url,
 		contentLen,
 	)
 	ce(err, "update hash")
-	_, err = tx.Exec(`DELETE FROM not_hashed
-		WHERE image_id = $1
-		`,
-		info.ImageId,
-	)
-	ce(err, "delete from not_hashed")
+	for _, imageId := range imageIds {
+		_, err = db.Exec(`UPDATE image_vars
+			SET hashed = true
+			WHERE image_id = $1
+			`,
+			imageId,
+		)
+		ce(err, "update images")
+	}
 	return
 }

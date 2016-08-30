@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,12 +49,9 @@ do:
 				wg.Done()
 			}()
 			n, err := collectDetailPage(id)
-			if err != nil {
-				pt("%v\n", err)
-			} else {
-				pt("%10d / %10d / %10d collected, %10d images, id %10d\n",
-					i, l, atomic.AddUint64(&total, 1), n, id)
-			}
+			ce(err, "collect detail page")
+			pt("%10d / %10d / %10d collected, %10d images, id %10d\n",
+				i, l, atomic.AddUint64(&total, 1), n, id)
 		}()
 	}
 	wg.Wait()
@@ -154,9 +152,8 @@ get:
 }
 
 func saveGoodImage(tx *sqlx.Tx, goodId int64, url string) (err error) {
-	defer ct(&err)
 	if url == "" {
-		return
+		return nil
 	}
 	var imageId int64
 	err = tx.Get(&imageId, `INSERT INTO images (good_id, url)
@@ -167,22 +164,20 @@ func saveGoodImage(tx *sqlx.Tx, goodId int64, url string) (err error) {
 		goodId,
 		url,
 	)
-	ce(err, "insert image")
-	var notHashed bool
-	ce(tx.Get(&notHashed, `SELECT
-		sha512_16k IS NULL
-		FROM images
-		WHERE image_id = $1
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return me(err, "insert image")
+	}
+	_, err = tx.Exec(`INSERT INTO image_vars
+		(image_id)
+		VALUES ($1)
 		`,
 		imageId,
-	), "get hash state")
-	if notHashed {
-		_, err = tx.Exec(`INSERT INTO not_hashed (image_id)
-			VALUES ($1)
-			`,
-			imageId,
-		)
-		ce(err, "insert into not_hashed")
+	)
+	if err != nil {
+		return me(err, "insert image vars")
 	}
-	return
+	return nil
 }
