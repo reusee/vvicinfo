@@ -89,6 +89,12 @@ func hashImages() {
 
 func hashImage(info *ImageInfo) (err error) {
 	defer ct(&err)
+
+	tx := db.MustBegin()
+	defer func() {
+		ce(tx.Commit(), "commit")
+	}()
+
 	retry := 10
 get:
 	resp, err := http.Get(info.Url)
@@ -121,7 +127,7 @@ get:
 
 	sum := h.Sum(nil)
 	var imageIds []int64
-	err = db.Select(&imageIds, `UPDATE images
+	err = tx.Select(&imageIds, `UPDATE images
 		SET sha512_16k = $1, length = $3
 		WHERE url = $2
 		RETURNING image_id
@@ -132,7 +138,7 @@ get:
 	)
 	ce(err, "update hash")
 	for _, imageId := range imageIds {
-		_, err = db.Exec(`UPDATE image_vars
+		_, err = tx.Exec(`UPDATE image_vars
 			SET hashed = true
 			WHERE image_id = $1
 			`,
