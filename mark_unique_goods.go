@@ -6,8 +6,9 @@ func markUniqueGoods() {
 		ce(tx.Commit(), "commit")
 	}()
 
-	// 不需要，一次独家，永远独家
-	//_, err := tx.Exec(`UPDATE goods SET
+	var err error
+
+	//_, err = tx.Exec(`UPDATE goods SET
 	//	is_unique = false
 	//	WHERE
 	//	is_unique = true
@@ -15,7 +16,7 @@ func markUniqueGoods() {
 	//)
 	//ce(err, "set all is_unique to false")
 
-	_, err := tx.Exec(`UPDATE goods SET 
+	_, err = tx.Exec(`UPDATE goods SET 
 		is_unique = true
 		WHERE group_id = ANY(
 			SELECT group_id FROM (

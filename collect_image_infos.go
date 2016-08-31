@@ -96,6 +96,8 @@ collect:
 func collectImageInfo(url string) (err error) {
 	defer ct(&err)
 
+	pt("%s\n", url)
+
 	// 先查数据库，看有没有已经hash的
 	var hash []byte
 	var length int
@@ -159,7 +161,7 @@ func updateImageInfo(url string, hash []byte, length int) (err error) {
 	err = db.Select(&imageIds, `UPDATE images
 		SET sha512_16k = $1, length = $3
 		WHERE url = $2
-		AND (sha512_16k IS NULL OR length IS NULL)
+		--AND (sha512_16k IS NULL OR length IS NULL)
 		RETURNING image_id
 		`,
 		hash,
