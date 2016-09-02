@@ -96,7 +96,7 @@ collect:
 func collectImageInfo(url string) (err error) {
 	defer ct(&err)
 
-	pt("%s\n", url)
+	//pt("%s\n", url)
 
 	// 先查数据库，看有没有已经hash的
 	var hash []byte

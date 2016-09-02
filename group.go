@@ -122,7 +122,7 @@ check:
 	for rightId, hashSet := range matches {
 		//TODO 去掉第二个条件
 		if len(hashSet) >= 10 && math.Abs(float64(len(hashes)-len(hashSet))) < 5 {
-			pt("%d %d %d %d %d - \n", goodId, len(hashes), rightId, len(hashSet), markedCount)
+			pt("%d %d %d %d %d %v\n", goodId, len(hashes), rightId, len(hashSet), markedCount, dataIsReady)
 			// 不到的话就算了吧
 			has = true
 			_, err := tx.Exec(`UPDATE goods
