@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/base64"
-	"math"
 	"runtime"
 	"sync/atomic"
 )
@@ -12,6 +11,7 @@ func groupGoods() {
 	goodIdToHashes := make(map[int32][]string)
 	hashToGoodIds := make(map[string][]int32)
 	go func() {
+		return
 		rows, err := db.Query(`SELECT
 		good_id, encode(sha512_16k, 'base64')
 		FROM images
@@ -58,7 +58,7 @@ func groupGoods() {
 		goodIds[goodId] = struct{}{}
 	}
 	ce(rows.Err(), "rows err")
-	pt("good ids loaded\n")
+	pt("%d goods to check\n", len(goodIds))
 
 	txCount := 0
 	tx := db.MustBegin()
@@ -120,8 +120,7 @@ check:
 
 	has := false
 	for rightId, hashSet := range matches {
-		//TODO 去掉第二个条件
-		if len(hashSet) >= 10 && math.Abs(float64(len(hashes)-len(hashSet))) < 5 {
+		if len(hashSet) >= 10 {
 			pt("%d %d %d %d %d %v\n", goodId, len(hashes), rightId, len(hashSet), markedCount, dataIsReady)
 			// 不到的话就算了吧
 			has = true
@@ -147,6 +146,10 @@ check:
 		ce(err, "update goods")
 		delete(goodIds, goodId)
 		markedCount++
+	}
+
+	if markedCount%1000 == 0 {
+		pt("marked %d\n", markedCount)
 	}
 
 	txCount++
