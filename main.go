@@ -65,8 +65,6 @@ func main() {
 			foo()
 		case "rank":
 			collectRankings()
-		case "unique":
-			markUniqueGoods()
 		case "size":
 			collectImageSize()
 		case "length":
@@ -79,7 +77,6 @@ func main() {
 		collectImageInfos()
 		groupGoods()
 		collectRankings()
-		markUniqueGoods()
 	}
 
 	time.Sleep(time.Second)
