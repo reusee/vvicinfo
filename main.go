@@ -59,10 +59,6 @@ func main() {
 			collectImageInfos()
 		case "group":
 			groupGoods()
-		case "fixgroup":
-			groupByInternalId()
-		case "foo":
-			foo()
 		case "rank":
 			collectRankings()
 		case "size":
