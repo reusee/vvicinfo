@@ -65,14 +65,17 @@ func main() {
 			collectImageSize()
 		case "length":
 			collectImageLength()
+		case "classify":
+			classifyGoods()
 		}
 
 	} else {
+		collectRankings()
 		collectShops()
 		collectGoods()
 		collectImageInfos()
 		groupGoods()
-		collectRankings()
+		classifyGoods()
 	}
 
 	time.Sleep(time.Second)
