@@ -1,6 +1,13 @@
 package main
 
+import (
+	"github.com/lib/pq"
+)
+
 func classifyGoods() {
+	var skipGoodIds pq.Int64Array
+	skipGoodIds = append(skipGoodIds, -1)
+
 check:
 	// select one good
 	var goodId int64
@@ -10,12 +17,16 @@ check:
 	ce(db.QueryRow(`SELECT
     good_id, group_id, shop_id, internal_id
     FROM goods
+    LEFT JOIN shops USING (shop_id)
     WHERE 
     class_id IS NULL
     AND group_id > 0
     AND internal_id IS NOT NULL
+    AND blacklisted = false
+    AND NOT (good_id = ANY($1))
     LIMIT 1
     `,
+		skipGoodIds,
 	).Scan(&goodId, &groupId, &shopId, &internalId), "get good id")
 
 	// get class ids by group_id or shop internal_id
@@ -68,6 +79,8 @@ check:
 		pt("%d %d\n", goodId, classIds[0])
 	} else {
 		//TODO multiple class, fix this
+		// 可能原因是同档口货号，但款式不同，档口的问题
+		skipGoodIds = append(skipGoodIds, goodId)
 	}
 
 	goto check
