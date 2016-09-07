@@ -82,7 +82,7 @@ check:
 	if dataIsReady {
 		hashes = goodIdToHashes[goodId]
 	} else {
-		err := db.Select(&hashes, `SELECT
+		err := tx.Select(&hashes, `SELECT
 			encode(sha512_16k, 'base64')
 			FROM images
 			WHERE good_id = $1
@@ -100,7 +100,7 @@ check:
 		} else {
 			bs, err := base64.StdEncoding.DecodeString(hash)
 			ce(err, "decode hash")
-			err = db.Select(&rightIds, `SELECT
+			err = tx.Select(&rightIds, `SELECT
 				good_id
 				FROM images
 				WHERE

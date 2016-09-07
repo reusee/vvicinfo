@@ -8,6 +8,8 @@ func classifyGoods() {
 	var skipGoodIds pq.Int64Array
 	skipGoodIds = append(skipGoodIds, -1)
 
+	n := 0
+
 check:
 	tx := db.MustBegin()
 
@@ -19,7 +21,6 @@ check:
     class_id IS NULL
     AND group_id > 0
     AND internal_id IS NOT NULL
-    AND blacklisted = false
     AND NOT (good_id = ANY($1))
     LIMIT 512
     `,
@@ -27,12 +28,14 @@ check:
 	)
 	ce(err, "query")
 
+	cnt := 0
 	for rows.Next() {
 		var goodId int64
 		var groupId int64
 		var shopId int64
 		var internalId string
 		ce(rows.Scan(&goodId, &groupId, &shopId, &internalId), "scan")
+		cnt++
 
 		// get class ids by group_id or shop internal_id
 		var classIds []int64
@@ -40,13 +43,17 @@ check:
       DISTINCT class_id
       FROM goods
       WHERE
-      (group_id = $1
-      OR (shop_id = $2 AND internal_id = $3))
+      group_id = $1
+
+      --暂不通过档口货号选款，因为有些档口一个货号对应多个不同的款式的
+      --(group_id = $1
+      --OR (shop_id = $2 AND internal_id = $3))
+
       AND class_id IS NOT NULL
       `,
 			groupId,
-			shopId,
-			internalId,
+			//shopId,
+			//internalId,
 		), "select class ids")
 
 		if len(classIds) == 0 { // create new class
@@ -69,7 +76,8 @@ check:
 				goodId,
 			)
 			ce(err, "update good")
-			pt("%7d %d\n", goodId, classId)
+			//pt("%7d %d\n", goodId, classId)
+			n++
 		} else if len(classIds) == 1 {
 			_, err := tx.Exec(`UPDATE goods
         SET class_id = $1
@@ -79,7 +87,8 @@ check:
 				goodId,
 			)
 			ce(err, "update good")
-			pt("%7d %d\n", goodId, classIds[0])
+			//pt("%7d %d\n", goodId, classIds[0])
+			n++
 		} else {
 			//TODO multiple class, fix this
 			// 可能原因是同档口货号，但款式不同，档口的问题
@@ -92,5 +101,10 @@ check:
 
 	ce(tx.Commit(), "commit")
 
-	goto check
+	pt("%d\n", n)
+
+	if cnt > 0 {
+		goto check
+	}
+
 }
