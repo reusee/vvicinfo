@@ -75,7 +75,7 @@ func main() {
 		collectGoods()
 		collectImageInfos()
 		groupGoods()
-		classifyGoods()
+		//classifyGoods()
 	}
 
 	time.Sleep(time.Second)

@@ -9,7 +9,7 @@ var (
 	start = time.Now()
 )
 
-var outputStrs = make(chan string)
+var outputStrs = make(chan string, 1024)
 
 func init() {
 	go func() {

@@ -3,10 +3,12 @@ package main
 import (
 	"math"
 	"runtime"
+	"sync/atomic"
+	"time"
 )
 
 func groupGoods() {
-	goodIdToHashes := make(map[int32][]string)
+	goodIdToHashes := make(map[int32]map[string]struct{})
 	hashToGoodIds := make(map[string][]int32)
 
 	rows, err := db.Query(`SELECT
@@ -23,7 +25,10 @@ func groupGoods() {
 		var goodId int32
 		var hash string
 		ce(rows.Scan(&goodId, &hash), "scan")
-		goodIdToHashes[goodId] = append(goodIdToHashes[goodId], hash)
+		if _, ok := goodIdToHashes[goodId]; !ok {
+			goodIdToHashes[goodId] = make(map[string]struct{})
+		}
+		goodIdToHashes[goodId][hash] = struct{}{}
 		hashToGoodIds[hash] = append(hashToGoodIds[hash], goodId)
 		n++
 		if n%10000 == 0 {
@@ -52,9 +57,25 @@ func groupGoods() {
 	ce(rows.Err(), "rows err")
 	pt("%d goods to check\n", len(goodIds))
 
+	exit := make(chan struct{})
+	defer func() {
+		close(exit)
+	}()
+	var markedCount int64
+	go func() {
+		ticker := time.NewTicker(time.Second * 5)
+		for {
+			select {
+			case <-ticker.C:
+				pt("marked %d goods\n", atomic.LoadInt64(&markedCount))
+			case <-exit:
+				return
+			}
+		}
+	}()
+
 	txCount := 0
 	tx := db.MustBegin()
-	markedCount := 0
 
 check:
 
@@ -69,6 +90,8 @@ check:
 		break
 	}
 
+	pt("%d\n", goodId)
+
 	hashes := goodIdToHashes[goodId]
 	if len(hashes) < 10 { // 图片数量少于10，不做染色
 		_, err := tx.Exec(`UPDATE goods
@@ -79,13 +102,13 @@ check:
 		)
 		ce(err, "update goods")
 		delete(goodIds, goodId)
-		markedCount++
+		atomic.AddInt64(&markedCount, 1)
 		goto check
 	}
 
 	// 收集匹配的hash
 	matches := make(map[int32]map[string]struct{})
-	for _, hash := range hashes {
+	for hash := range hashes {
 		rightIds := hashToGoodIds[hash]
 		for _, rightId := range rightIds {
 			if _, ok := matches[rightId]; !ok {
@@ -100,7 +123,7 @@ check:
 		if len(matchSet) < 10 || math.Abs(float64(len(hashes)-len(goodIdToHashes[rightId]))) > 5 {
 			continue
 		}
-		pt("%d %d %d %d %d\n", goodId, len(hashes), rightId, len(matchSet), markedCount)
+		pt("%7d %3d %7d %3d\n", goodId, len(hashes), rightId, len(matchSet))
 		_, err := tx.Exec(`UPDATE goods
 				SET group_id = $1
 				WHERE good_id = $2
@@ -110,11 +133,7 @@ check:
 		)
 		ce(err, "update goods")
 		delete(goodIds, rightId)
-		markedCount++
-	}
-
-	if markedCount%1000 == 0 {
-		pt("marked %d\n", markedCount)
+		atomic.AddInt64(&markedCount, 1)
 	}
 
 	txCount++

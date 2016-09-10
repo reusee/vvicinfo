@@ -241,7 +241,7 @@ func collectShop(skip map[int]bool, i int, shop ShopInfo) (err error) {
 		time.Now().Unix(),
 		shop.Id)
 
-	pt("No.%d shop %d %d items\n", i, shop.Id, itemCount)
+	pt("No.%-5d shop %8d %4d items\n", i, shop.Id, itemCount)
 
 	return
 }
