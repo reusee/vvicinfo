@@ -67,10 +67,13 @@ func main() {
 			collectImageLength()
 		case "classify":
 			classifyGoods()
+		case "category":
+			collectCategories()
 		}
 
 	} else {
 		collectRankings()
+		collectCategories()
 		collectShops()
 		collectGoods()
 		collectImageInfos()

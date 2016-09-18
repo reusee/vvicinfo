@@ -1,16 +1,15 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
+	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"github.com/PuerkitoBio/goquery"
-	"github.com/jmoiron/sqlx"
 )
 
 var zeroImagesIds = make(map[int64]int)
@@ -76,7 +75,7 @@ get:
 	var data struct {
 		Code int
 		Data struct {
-			Imgs   string // 图片
+			Imgs   string // 封面图片
 			Desc   string // 描述html
 			Status int    // 上下架状态
 			Size   string // 尺码
@@ -97,6 +96,7 @@ get:
 	tx := db.MustBegin()
 
 	nImages := 0
+	var coverImageIds []int64
 	for _, imgPath := range strings.Split(data.Data.Imgs, ",") {
 		if imgPath == "" {
 			continue
@@ -104,7 +104,9 @@ get:
 		if !strings.HasPrefix(imgPath, "http:") {
 			imgPath = "http:" + imgPath
 		}
-		ce(saveGoodImage(tx, id, imgPath), "save image url")
+		imgId, err := saveGoodImage(tx, id, imgPath)
+		ce(err, "save image")
+		coverImageIds = append(coverImageIds, imgId)
 		n++
 		nImages++
 	}
@@ -115,12 +117,14 @@ get:
 		if !strings.HasPrefix(imgSrc, "http") {
 			return
 		}
-		ce(saveGoodImage(tx, id, imgSrc), "save image url")
+		_, err := saveGoodImage(tx, id, imgSrc)
+		ce(err, "save image")
 		n++
 		nImages++
 	})
 	_, err = tx.Exec(`UPDATE goods 
-			SET status = $1, sizes = $2, colors = $3, tuixian = $5, attributes = $6, description = $7
+			SET status = $1, sizes = $2, colors = $3, tuixian = $5, attributes = $6, description = $7,
+			cover_image_ids = $8
 			WHERE good_id = $4`,
 		data.Data.Status,
 		data.Data.Size,
@@ -130,6 +134,7 @@ get:
 
 		data.Data.Attrs,
 		data.Data.Desc,
+		pq.Int64Array(coverImageIds),
 	)
 	ce(err, "update status")
 	if nImages > 0 {
@@ -157,24 +162,21 @@ get:
 	return
 }
 
-func saveGoodImage(tx *sqlx.Tx, goodId int64, url string) (err error) {
+func saveGoodImage(tx *sqlx.Tx, goodId int64, url string) (imageId int64, err error) {
 	if url == "" {
-		return nil
+		return 0, me(nil, "bad url")
 	}
-	var imageId int64
 	err = tx.Get(&imageId, `INSERT INTO images (good_id, url)
 		VALUES ($1, $2)
-		ON CONFLICT (good_id, url) DO NOTHING
+		ON CONFLICT (good_id, url) DO 
+		UPDATE SET image_id = images.image_id
 		RETURNING image_id
 		`,
 		goodId,
 		url,
 	)
-	if err == sql.ErrNoRows {
-		return nil
-	}
 	if err != nil {
-		return me(err, "insert image")
+		return 0, me(err, "insert image")
 	}
 	_, err = tx.Exec(`INSERT INTO image_vars
 		(image_id)
@@ -184,7 +186,7 @@ func saveGoodImage(tx *sqlx.Tx, goodId int64, url string) (err error) {
 		imageId,
 	)
 	if err != nil {
-		return me(err, "insert image vars")
+		return 0, me(err, "insert image vars")
 	}
-	return nil
+	return imageId, nil
 }
