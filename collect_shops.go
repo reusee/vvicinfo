@@ -42,7 +42,7 @@ func collectShops() {
 
 	skip := make(map[int]bool)
 	var ids []int
-	ts := time.Now().Add(-time.Hour * 8).Unix()
+	ts := time.Now().Add(-time.Hour * 24).Unix()
 	err := db.Select(&ids, `SELECT shop_id
 		FROM shops 
 		WHERE last_update_time > $1`,
